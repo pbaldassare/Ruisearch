@@ -308,7 +308,7 @@ export async function scheda(client, rui, { sezione } = {}) {
 
   const sedi = await client.query(
     `
-    select tipo_sede, comune_sede, provincia_sede, cap_sede, indirizzo_sede
+    select oss, tipo_sede, comune_sede, provincia_sede, cap_sede, indirizzo_sede
     from sedi
     where numero_iscrizione_int = $1
     order by tipo_sede, comune_sede
@@ -357,13 +357,28 @@ export async function scheda(client, rui, { sezione } = {}) {
     [numero],
   );
   const reteSoggetto = await rete(client, numero, { sezione });
+  const numeri = await numeriDi(client, numero);
+  const soggetto = soggetti[0];
+  const mandatiEreditati = soggetto.sezione === 'E' || !soggetto.persona_giuridica
+    ? await mandatiViaPrincipali(client, numero)
+    : [];
+
+  let mappa = [];
+  if (soggetto.persona_giuridica && sedi.rows.length > 0) {
+    const { puntiSedi } = await import('./geo.js');
+    mappa = await puntiSedi(client, numero, sedi.rows, { geocodifica: true });
+  }
 
   return {
-    soggetto: soggetti[0],
+    soggetto,
     omonimi_rui: soggetti.slice(1),
+    numeri,
+    profilo: soggetto.persona_giuridica ? 'azienda' : soggetto.sezione === 'E' ? 'sezione_e' : 'persona',
     sedi: sedi.rows,
+    mappa,
     siti_internet: siti.rows.map((r) => r.web_url),
     mandati: mandati.rows,
+    mandati_via_principali: mandatiEreditati,
     cariche: cariche.rows,
     contatti: contatti.rows,
     rete: {
@@ -372,6 +387,51 @@ export async function scheda(client, rui, { sezione } = {}) {
       grafo: reteSoggetto.grafo,
     },
   };
+}
+
+export async function numeriDi(client, rui) {
+  const n = normalizzaRui(rui);
+  const { rows } = await client.query(
+    `
+    select
+      (select count(distinct c.num_iscr_collaboratori_i_liv)::bigint
+         from collaboratori c
+         join intermediari i on i.numero_iscrizione_rui = c.num_iscr_collaboratori_i_liv
+        where c.num_iscr_intermediario = $1
+          and i.sezione = any($2::text[])) as intermediari,
+      (select count(*)::bigint
+         from collaboratori c
+         join intermediari i on i.numero_iscrizione_rui = c.num_iscr_collaboratori_i_liv
+        where c.num_iscr_intermediario = $1
+          and i.sezione = any($2::text[])) as collaborazioni,
+      (select count(*)::bigint from mandati where matricola = $1) as mandati,
+      (select count(*)::bigint from sedi where numero_iscrizione_int = $1) as sedi
+    `,
+    [n, SEZIONI_ATTIVE],
+  );
+  return rows[0];
+}
+
+export async function mandatiViaPrincipali(client, rui) {
+  const n = normalizzaRui(rui);
+  const { rows } = await client.query(
+    `
+    select distinct on (m.codice_compagnia, m.ragione_sociale, p.numero_iscrizione_rui)
+      p.numero_iscrizione_rui as rui_principale,
+      p.denominazione as principale,
+      p.sezione as sezione_principale,
+      m.codice_compagnia,
+      m.ragione_sociale
+    from collaboratori c
+    join intermediari p on p.numero_iscrizione_rui = c.num_iscr_intermediario
+    join mandati m on m.matricola = p.numero_iscrizione_rui
+    where (c.num_iscr_collaboratori_i_liv = $1 or c.num_iscr_collaboratori_ii_liv = $1)
+      and p.sezione = any($2::text[])
+    order by m.codice_compagnia, m.ragione_sociale, p.numero_iscrizione_rui
+    `,
+    [n, SEZIONI_ATTIVE],
+  );
+  return rows;
 }
 
 export async function elencoSedi(client, {

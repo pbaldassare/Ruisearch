@@ -1,8 +1,10 @@
 import {
   BarChart3,
+  BookOpen,
   Building2,
   GitBranch,
   Handshake,
+  MessageSquare,
   RefreshCw,
   UserCog,
   Users,
@@ -59,6 +61,20 @@ export const VOCI: VoceMenu[] = [
     path: "/app/cariche",
     icon: UserCog,
     descrizione: "Cariche societarie delle persone giuridiche iscritte.",
+  },
+  {
+    id: "query",
+    label: "Query",
+    path: "/app/query",
+    icon: MessageSquare,
+    descrizione: "Domande in italiano sulle dimensioni del registro.",
+  },
+  {
+    id: "documentazione",
+    label: "API e documenti",
+    path: "/app/documentazione",
+    icon: BookOpen,
+    descrizione: "Documentazione e API per software esterni.",
   },
   {
     id: "aggiornamento",

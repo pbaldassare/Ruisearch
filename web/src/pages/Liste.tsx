@@ -4,8 +4,9 @@ import { Search } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui";
 import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from "@/components/Tabella";
 import { getJson, qs, type CaricaRiga, type IntermediarioLista, type MandatoRiga, type Pagina, type Rete, type Scheda, type SedeRiga } from "@/api";
+import { MappaSedi } from "@/components/MappaSedi";
 import { useApi, useDebounce } from "@/lib/useApi";
-import { formatData } from "@/lib/format";
+import { formatData, formatNumero } from "@/lib/format";
 
 function CampoRicerca({
   valore,
@@ -119,6 +120,7 @@ export function IntermediariPage() {
 export function IntermediarioPage() {
   const { rui = "" } = useParams();
   const { data, errore, caricamento } = useApi<Scheda>(rui ? `/api/intermediari/${encodeURIComponent(rui)}` : null);
+  const { data: cfg } = useApi<{ maps_key: string }>("/api/config");
   const s = data?.soggetto;
 
   return (
@@ -161,6 +163,38 @@ export function IntermediarioPage() {
             </dl>
           </Card>
 
+          {data.numeri ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              {data.profilo === "azienda" ? (
+                <>
+                  <KpiMini label="Intermediari in rete" valore={data.numeri.intermediari} />
+                  <KpiMini label="Collaborazioni" valore={data.numeri.collaborazioni} />
+                  <KpiMini label="Mandati" valore={data.numeri.mandati} />
+                </>
+              ) : (
+                <>
+                  <KpiMini label="Mandati propri" valore={data.numeri.mandati} />
+                  <KpiMini
+                    label="Mandati via principali"
+                    valore={data.mandati_via_principali?.length ?? 0}
+                  />
+                  <KpiMini label="Principali" valore={data.rete.principali.length} />
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {data.profilo === "azienda" && data.mappa ? (
+            <Card>
+              <h3 className="mb-3 text-lg font-bold">Mappa sedi</h3>
+              {cfg?.maps_key ? (
+                <MappaSedi punti={data.mappa} mapsKey={cfg.maps_key} />
+              ) : (
+                <p className="text-sm text-muted-foreground">Manca GOOGLE_MAPS_API_KEY nel server.</p>
+              )}
+            </Card>
+          ) : null}
+
           <Blocco titolo="Sedi" vuoto="Nessuna sede in registro.">
             {data.sedi.map((sede, i) => (
               <p key={`${sede.indirizzo_sede}-${i}`}>
@@ -171,13 +205,27 @@ export function IntermediarioPage() {
             ))}
           </Blocco>
 
-          <Blocco titolo="Mandati" vuoto="Nessun mandato in registro.">
+          <Blocco titolo="Mandati propri" vuoto="Nessun mandato intestato a questo RUI.">
             {data.mandati.map((m, i) => (
               <p key={`${m.codice_compagnia}-${i}`}>
                 {m.ragione_sociale || "—"} {m.codice_compagnia ? `(${m.codice_compagnia})` : ""}
               </p>
             ))}
           </Blocco>
+
+          {data.mandati_via_principali && data.mandati_via_principali.length > 0 ? (
+            <Blocco titolo="Mandati dei principali (sezione E / persona)" vuoto="">
+              {data.mandati_via_principali.map((m, i) => (
+                <p key={`${m.rui_principale}-${m.codice_compagnia}-${i}`}>
+                  {m.ragione_sociale || "—"} via{" "}
+                  <Link className="font-semibold text-primary hover:underline" to={`/app/intermediari/${m.rui_principale}`}>
+                    {m.principale || m.rui_principale}
+                  </Link>
+                  {m.sezione_principale ? ` · ${m.sezione_principale}` : ""}
+                </p>
+              ))}
+            </Blocco>
+          ) : null}
 
           <Blocco titolo="Cariche" vuoto="Nessuna carica in registro.">
             {data.cariche.map((c, i) => (
@@ -220,6 +268,15 @@ export function IntermediarioPage() {
         </>
       ) : null}
     </div>
+  );
+}
+
+function KpiMini({ label, valore }: { label: string; valore: string | number }) {
+  return (
+    <Card>
+      <p className="text-sm text-muted-foreground">{label}</p>
+      <p className="mt-1 font-display text-3xl">{formatNumero(valore)}</p>
+    </Card>
   );
 }
 

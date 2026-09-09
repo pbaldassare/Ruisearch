@@ -96,15 +96,40 @@ export type Scheda = {
     data_nascita: string | null;
   };
   omonimi_rui: unknown[];
+  profilo: "azienda" | "sezione_e" | "persona";
+  numeri: {
+    intermediari: string | number;
+    collaborazioni: string | number;
+    mandati: string | number;
+    sedi: string | number;
+  };
   sedi: Array<{
+    oss?: number;
     tipo_sede: string | null;
     comune_sede: string | null;
     provincia_sede: string | null;
     cap_sede: string | null;
     indirizzo_sede: string | null;
   }>;
+  mappa: Array<{
+    oss: number;
+    tipo_sede: string | null;
+    comune_sede: string | null;
+    provincia_sede: string | null;
+    indirizzo_sede: string | null;
+    lat: number | null;
+    lng: number | null;
+    stato: string;
+  }>;
   siti_internet: string[];
   mandati: Array<{ codice_compagnia: string | null; ragione_sociale: string | null }>;
+  mandati_via_principali: Array<{
+    rui_principale: string;
+    principale: string | null;
+    sezione_principale: string | null;
+    codice_compagnia: string | null;
+    ragione_sociale: string | null;
+  }>;
   cariche: Array<{
     qualifica: string | null;
     responsabile: string | null;

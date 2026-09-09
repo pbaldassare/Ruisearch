@@ -13,6 +13,7 @@
 // Scorciatoie: --rui / --nome senza comando fanno scheda o cerca.
 
 import { closePool, withClient } from '../src/db.js';
+import { interpretaDomanda } from '../src/domanda.js';
 import {
   cercaIntermediari,
   elencoCariche,
@@ -37,7 +38,7 @@ function haFlag(nome) {
 }
 
 const COMANDI = new Set([
-  'overview', 'cerca', 'scheda', 'rete', 'sedi', 'mandati', 'cariche', 'import',
+  'overview', 'cerca', 'scheda', 'rete', 'sedi', 'mandati', 'cariche', 'import', 'domanda',
 ]);
 
 function comando() {
@@ -113,6 +114,9 @@ async function main(azioneScelta) {
         return elencoCariche(client, { q, sezione, dopoOss, limite });
       case 'import':
         return storicoImport(client, { limite });
+      case 'domanda':
+        if (!q) throw new Error('indica --q "domanda in italiano"');
+        return interpretaDomanda(client, q);
       default:
         throw new Error(`comando sconosciuto: ${azioneScelta}`);
     }

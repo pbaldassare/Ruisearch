@@ -12,6 +12,8 @@ import {
   SediPage,
 } from "@/pages/Liste";
 import { AggiornamentoPage } from "@/pages/Aggiornamento";
+import { QueryPage } from "@/pages/Query";
+import { DocumentazionePage } from "@/pages/Documentazione";
 
 function RichiedeAccesso() {
   const { email } = useAuth();
@@ -35,6 +37,8 @@ export function App() {
         <Route path="sedi" element={<SediPage />} />
         <Route path="mandati" element={<MandatiPage />} />
         <Route path="cariche" element={<CarichePage />} />
+        <Route path="query" element={<QueryPage />} />
+        <Route path="documentazione" element={<DocumentazionePage />} />
         <Route path="aggiornamento" element={<AggiornamentoPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/login" replace />} />
