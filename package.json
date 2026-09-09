@@ -13,7 +13,10 @@
     "import:dry": "node scripts/import.js --dry-run",
     "import:rest": "node scripts/import-rest.js",
     "lookup": "node scripts/lookup-intermediario.js",
-    "dev": "npm run dev --prefix web",
+    "cerca": "node scripts/cerca.js",
+    "api": "node scripts/api.js",
+    "dev": "node scripts/dev.js",
+    "dev:web": "npm run dev --prefix web",
     "build": "npm run build --prefix web"
   },
   "dependencies": {

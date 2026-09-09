@@ -1,5 +1,6 @@
 -- Query della dashboard. Solo lettura. Nessun import.
--- Placeholder: $1, $2, $3 (o :q, :sezione, :rui, :limit, :offset).
+-- Fonte unica: src/query.js (sezioni A, B, E). Qui il testo di riferimento.
+-- Placeholder: $1 sezioni text[], poi q / rui / cursore.
 
 -- ---------------------------------------------------------------------------
 -- Overview
