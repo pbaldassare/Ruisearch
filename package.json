@@ -11,6 +11,7 @@
     "check-db": "node scripts/check-connection.js",
     "import": "node scripts/import.js",
     "import:dry": "node scripts/import.js --dry-run",
+    "import:rest": "node scripts/import-rest.js",
     "lookup": "node scripts/lookup-intermediario.js"
   },
   "dependencies": {
