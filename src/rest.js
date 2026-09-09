@@ -8,8 +8,8 @@ export function rigaComeOggetto(spec, valori) {
     const [nome] = spec.colonne[i];
     if (GENERATED.has(nome) || nome === 'id') continue;
     const v = valori[i];
-    if (v === null || v === undefined) continue;
-    out[nome] = nome === 'oss' ? Number(v) : v;
+    if (v === null || v === undefined) out[nome] = null;
+    else out[nome] = nome === 'oss' ? Number(v) : v;
   }
   return out;
 }
