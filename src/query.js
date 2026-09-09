@@ -403,8 +403,7 @@ export async function elencoSedi(client, {
 
   const { rows } = await client.query(
     `
-    with ${anagCte()}
-    select
+    select distinct on (s.oss)
       s.oss,
       s.numero_iscrizione_int as rui,
       i.denominazione,
@@ -414,9 +413,9 @@ export async function elencoSedi(client, {
       s.provincia_sede,
       s.indirizzo_sede
     from sedi s
-    join anag i on i.numero_iscrizione_rui = s.numero_iscrizione_int
+    join intermediari i on i.numero_iscrizione_rui = s.numero_iscrizione_int
     where ${where.join('\n      and ')}
-    order by s.oss
+    order by s.oss, i.inoperativo
     limit $${params.length}
     `,
     params,
@@ -447,8 +446,7 @@ export async function elencoMandati(client, { q, sezione, dopoOss, limite } = {}
 
   const { rows } = await client.query(
     `
-    with ${anagCte()}
-    select
+    select distinct on (m.oss)
       m.oss,
       m.matricola as rui,
       i.denominazione,
@@ -456,9 +454,9 @@ export async function elencoMandati(client, { q, sezione, dopoOss, limite } = {}
       m.codice_compagnia,
       m.ragione_sociale
     from mandati m
-    join anag i on i.numero_iscrizione_rui = m.matricola
+    join intermediari i on i.numero_iscrizione_rui = m.matricola
     where ${where.join('\n      and ')}
-    order by m.oss
+    order by m.oss, i.inoperativo
     limit $${params.length}
     `,
     params,
@@ -490,8 +488,7 @@ export async function elencoCariche(client, { q, sezione, dopoOss, limite } = {}
 
   const { rows } = await client.query(
     `
-    with ${anagCte()}
-    select
+    select distinct on (c.oss)
       c.oss,
       c.numero_iscrizione_rui_pf as persona_rui,
       pf.denominazione as persona,
@@ -500,10 +497,14 @@ export async function elencoCariche(client, { q, sezione, dopoOss, limite } = {}
       c.qualifica_intermediario as qualifica,
       c.responsabile
     from cariche c
-    left join anag pf on pf.numero_iscrizione_rui = c.numero_iscrizione_rui_pf
-    left join anag pg on pg.numero_iscrizione_rui = c.numero_iscrizione_rui_pg
+    left join intermediari pf
+      on pf.numero_iscrizione_rui = c.numero_iscrizione_rui_pf
+     and pf.sezione = any($1::text[])
+    left join intermediari pg
+      on pg.numero_iscrizione_rui = c.numero_iscrizione_rui_pg
+     and pg.sezione = any($1::text[])
     where ${where.join('\n      and ')}
-    order by c.oss
+    order by c.oss, pf.inoperativo, pg.inoperativo
     limit $${params.length}
     `,
     params,
