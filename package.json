@@ -12,7 +12,9 @@
     "import": "node scripts/import.js",
     "import:dry": "node scripts/import.js --dry-run",
     "import:rest": "node scripts/import-rest.js",
-    "lookup": "node scripts/lookup-intermediario.js"
+    "lookup": "node scripts/lookup-intermediario.js",
+    "dev": "npm run dev --prefix web",
+    "build": "npm run build --prefix web"
   },
   "dependencies": {
     "pg": "^8.13.1",
