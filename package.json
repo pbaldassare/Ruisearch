@@ -8,7 +8,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "check-db": "node scripts/check-connection.js"
+    "check-db": "node scripts/check-connection.js",
+    "import": "node scripts/import.js",
+    "import:dry": "node scripts/import.js --dry-run"
   },
   "dependencies": {
     "pg": "^8.13.1",
