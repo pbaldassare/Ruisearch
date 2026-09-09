@@ -48,6 +48,7 @@ begin
     execute format('drop policy if exists lettura_pubblica on %I', t);
     execute format(
       'create policy lettura_pubblica on %I for select to anon, authenticated using (true)', t);
+    execute format('revoke all on table %I from anon, authenticated', t);
     execute format('grant select on table %I to anon, authenticated, service_role', t);
     execute format('grant insert, update, delete on table %I to service_role', t);
   end loop;
