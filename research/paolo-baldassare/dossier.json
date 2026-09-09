@@ -1,0 +1,485 @@
+{
+  "soggetto": "BALDASSARE PAOLO",
+  "raccolto_il": "2026-09-09",
+  "fonte_rui": {
+    "portale": "https://ruipubblico.ivass.it/rui-pubblica/ng/#/workspace/registro-unico-intermediari",
+    "export": "https://ruipubblico.ivass.it/inquiry-public-manager/inquiry-public/esporta-registro",
+    "export_generato_il": "2026-09-09"
+  },
+  "rui": {
+    "oss": 9746,
+    "numero_iscrizione_rui": "E000188700",
+    "sezione": "E",
+    "descrizione_sezione": "Collaboratori degli intermediari iscritti nelle sezioni A, B o D",
+    "data_iscrizione": "2007-06-01",
+    "inoperativo": false,
+    "cognome_nome": "BALDASSARE PAOLO",
+    "persona_giuridica": false,
+    "stato": "ITALIA",
+    "comune_nascita": "SARZANA",
+    "provincia_nascita": "SP",
+    "data_nascita": "1974-10-21",
+    "titolo_individuale": false,
+    "sedi_in_rui": [],
+    "siti_in_rui": [],
+    "mandati_in_rui": [],
+    "note": "La sezione E non pubblica sede né mandati propri: il collaboratore opera attraverso i principali."
+  },
+  "come_contattarlo": {
+    "canale_migliore": "LinkedIn in mail o messaggio diretto",
+    "linkedin": {
+      "url": "https://www.linkedin.com/in/paolo-baldassare-91a88446",
+      "affidabilita": "pubblico_recente",
+      "perche": "Stesso nome, stessa area Garda/Desenzano, stesso mondo assicurativo (like e collaborazioni Zurlo Broker, Assicurasoft/bastalatarga). Headline: Founder & CTO Adaptive EAI. Co-amministratore bastalatarga-Assicurasoft fino al 2022. A.D. Blt s.r.l.",
+      "email_linkedin": null,
+      "nota": "LinkedIn non espone email o cellulare. Contatto operativo: InMail / Direct."
+    },
+    "email": [
+      {
+        "valore": "paolo.baldassare@gmail.com",
+        "affidabilita": "pubblico_recente",
+        "fonte": "account GitHub pubblico pbaldassare (repo Ruisearch)",
+        "fonte_url": "https://github.com/pbaldassare"
+      },
+      {
+        "valore": "info@bastalatarga.com",
+        "affidabilita": "storico",
+        "fonte": "pagina LinkedIn company bastalatarga - Assicurasoft",
+        "fonte_url": "https://www.linkedin.com/company/basta-la-targa",
+        "nota": "Email aziendale storica, non personale. Il dominio bastalatarga.it oggi risulta di un altro intermediario (Antonio Di Sante, Verbania)."
+      },
+      {
+        "valore": "commerciale@assicurasoft.it",
+        "affidabilita": "storico",
+        "fonte": "pagina LinkedIn company bastalatarga - Assicurasoft"
+      },
+      {
+        "valore": "rui@oxygencar.it",
+        "affidabilita": "storico",
+        "fonte": "comunicato Federcarrozzieri 2017",
+        "fonte_url": "https://ilcarrozziere.it/blog/2017/01/comunicato-a-tutti-gli-iscritti-federcarrozzieri/",
+        "nota": "Canale corso abilitazione RUI, non inbox personale."
+      },
+      {
+        "valore": "polizze@oxygencar.it",
+        "affidabilita": "storico",
+        "fonte": "comunicato Federcarrozzieri 2017"
+      },
+      {
+        "valore": "broker@oxygencar.it",
+        "affidabilita": "storico",
+        "fonte": "comunicato Federcarrozzieri 2017"
+      }
+    ],
+    "telefono": [
+      {
+        "valore": "328 1213025",
+        "affidabilita": "storico",
+        "fonte": "comunicato Federcarrozzieri 17 gennaio 2017, attribuito esplicitamente a Paolo Baldassare",
+        "fonte_url": "https://ilcarrozziere.it/blog/2017/01/comunicato-a-tutti-gli-iscritti-federcarrozzieri/",
+        "nota": "Cellulare pubblico di 9 anni fa. Da verificare prima di usarlo."
+      }
+    ],
+    "indirizzo": [
+      {
+        "valore": "Via Michelangelo 71, Desenzano del Garda (BS)",
+        "affidabilita": "pubblico_recente",
+        "fonte": "scheda MePA / dati.consip.it 2024, impresa individuale BALDASSARE PAOLO",
+        "fonte_url": "https://www.amministrazionicomunali.it/lombardia/desenzano-del-garda/baldassare-paolo",
+        "partita_iva": "02141430989",
+        "nota": "Sede legale impresa individuale ICT (fornitore MePA), non sede RUI."
+      }
+    ],
+    "omonimi_da_non_confondere": [
+      {
+        "url": "https://www.linkedin.com/in/paolo-baldassare",
+        "chi": "Insurance Consultant Generali",
+        "affidabilita": "omonimo_possibile",
+        "nota": "Stesso nome, settore assicurativo, ma profilo distinto: non coincide con Desenzano / Adaptive EAI / Zurlo / Assicurasoft."
+      }
+    ]
+  },
+  "attivita_extra_rui": {
+    "oggi": "Founder & CTO Adaptive EAI (da giugno 2024, Milano / Desenzano). Consulente privacy/GDPR. Imprenditore ICT sul Garda.",
+    "passato": [
+      "Co-amministratore bastalatarga - Assicurasoft (luglio 2017 – novembre 2022, Lonato del Garda): software RCA e piattaforme assicurative.",
+      "A.D. Blt s.r.l.",
+      "Titolare piattaforma Oxygen Polizze per carrozzerie iscritte in sezione E (2017)."
+    ],
+    "sito_adaptive": "https://adaptiveeai.com"
+  },
+  "rapporti_collaborazione_rui": [
+    {
+      "livello": "I",
+      "qualifica": "Collaboratore di intermediario",
+      "principale_rui": "A000173967",
+      "principale": "BELLONI MAURIZIO",
+      "sezione_principale": "A"
+    },
+    {
+      "livello": "I",
+      "qualifica": "Collaboratore di intermediario",
+      "principale_rui": "A000773656",
+      "principale": "MAG MOBILITY",
+      "sezione_principale": "A"
+    },
+    {
+      "livello": "I",
+      "qualifica": "Collaboratore di intermediario",
+      "principale_rui": "B000053924",
+      "principale": "BONI ALESSANDRO",
+      "sezione_principale": "B"
+    },
+    {
+      "livello": "I",
+      "qualifica": "Collaboratore di intermediario",
+      "principale_rui": "B000511880",
+      "principale": "B.&P. SRL - BELLI & PARTNERS SRL",
+      "sezione_principale": "B"
+    },
+    {
+      "livello": "I",
+      "qualifica": "Collaboratore di intermediario",
+      "principale_rui": "B000605379",
+      "principale": "ZURLO BROKER SRL UNIPERSONALE",
+      "sezione_principale": "B"
+    }
+  ],
+  "principali": [
+    {
+      "numero_iscrizione_rui": "A000173967",
+      "denominazione": "BELLONI MAURIZIO",
+      "sezione": "A",
+      "data_iscrizione": "2007-04-27",
+      "inoperativo": false,
+      "comune_nascita": "BRESCIA",
+      "provincia_nascita": "BS",
+      "data_nascita": "1969-08-17",
+      "titolo_individuale_sez_a": true,
+      "attivita": "Assicurativa",
+      "sedi": [
+        {
+          "tipo_sede": "Sede operativa",
+          "indirizzo": "VIA SANT'ORSOLA, 64",
+          "cap": "25135",
+          "comune": "BRESCIA",
+          "provincia": "BS"
+        }
+      ],
+      "mandati": [
+        "GENERALI ITALIA S.P.A.",
+        "ITAS MUTUA",
+        "ITAS VITA S.P.A.",
+        "GLOBAL ASSISTANCE",
+        "HELVETIA VITA",
+        "ARAG SE",
+        "METLIFE EUROPE DAC",
+        "HELVETIA COMPAGNIA SVIZZERA"
+      ],
+      "collaboratori_i_livello": 11,
+      "altri_collaboratori": [
+        "BONOLDI GLAUCO E000124232",
+        "MILAZZOTTO FABIO E000180240",
+        "CONTRINI DANIELE E000413232",
+        "PELI GIORGIO E000480065",
+        "CASTAGNA FRANCESCO E000527522",
+        "BAGETTO PAOLA E000537058 dipendente",
+        "BELLONI MARZIA E000542451",
+        "PIZZOCOLO MONICA E000596443",
+        "FOLLONI LUCIANA E000651890",
+        "ZUCCHI ADRIANO E000668582"
+      ],
+      "contatti": [
+        {
+          "tipo": "telefono",
+          "valore": "030 3753115",
+          "fonte": "reteimprese.it scheda Belloni Maurizio Assicurazioni",
+          "affidabilita": "pubblico_recente"
+        },
+        {
+          "tipo": "partita_iva",
+          "valore": "02901600987",
+          "fonte": "registro imprese / aziende.it",
+          "affidabilita": "pubblico_recente"
+        }
+      ]
+    },
+    {
+      "numero_iscrizione_rui": "A000773656",
+      "denominazione": "MAG MOBILITY",
+      "sezione": "A",
+      "data_iscrizione": "2025-03-11",
+      "inoperativo": false,
+      "titolo_individuale_sez_a": true,
+      "attivita": "Assicurativa",
+      "sedi": [
+        {
+          "tipo_sede": "Sede legale",
+          "indirizzo": "VIA LARGA",
+          "cap": "20122",
+          "comune": "MILANO",
+          "provincia": "MI"
+        }
+      ],
+      "mandati": [
+        "GLOBAL ASSISTANCE",
+        "IMA ITALIA ASSISTANCE",
+        "NET INSURANCE",
+        "REVO INSURANCE",
+        "MAPFRE ASISTENCIA",
+        "ARAG SE",
+        "LLOYD'S INSURANCE COMPANY SA"
+      ],
+      "responsabile_intermediazione": {
+        "nome": "ZIRANO SIMONA",
+        "rui": "A000083523",
+        "linkedin": "https://www.linkedin.com/in/simona-zirano-54968b41",
+        "altra_carica": "Responsabile intermediazione anche di LINK S.R.L. A000401037; AD LINK Underwriting Agency"
+      },
+      "collaboratori_i_livello": 155,
+      "nota": "Agenzia multi-mandataria automotive del gruppo MAG. Rete di concessionari/carrozzerie in sezione E. Distinguere da MAG S.p.A. B000400942 (Roma, Via delle Tre Madonne).",
+      "contatti_gruppo": [
+        {
+          "tipo": "telefono",
+          "valore": "+39 06 85306540",
+          "fonte": "magitaliagroup.com",
+          "affidabilita": "pubblico_recente",
+          "nota": "Recapito del gruppo MAG, non della sola A000773656."
+        },
+        {
+          "tipo": "email",
+          "valore": "rome@magitaliagroup.com",
+          "fonte": "magitaliagroup.com",
+          "affidabilita": "pubblico_recente"
+        }
+      ]
+    },
+    {
+      "numero_iscrizione_rui": "B000053924",
+      "denominazione": "BONI ALESSANDRO",
+      "sezione": "B",
+      "data_iscrizione": "2013-02-27",
+      "inoperativo": false,
+      "comune_nascita": "FIRENZE",
+      "provincia_nascita": "FI",
+      "data_nascita": "1964-03-12",
+      "titolo_individuale_sez_b": true,
+      "attivita": "Assicurativa",
+      "sedi": [
+        {
+          "tipo_sede": "Sede operativa",
+          "indirizzo": "VIA QUADRATO",
+          "cap": "37069",
+          "comune": "VILLAFRANCA DI VERONA",
+          "provincia": "VR"
+        }
+      ],
+      "siti_in_rui": [],
+      "mandati": [],
+      "collaboratori_i_livello": 4,
+      "altri_collaboratori": [
+        "FORCELLA LUIGI E000421225",
+        "SALIMBENI SABRINA E000484410",
+        "MUSTATEA ILIE CATALIN E000520379"
+      ],
+      "contatti": [
+        {
+          "tipo": "indirizzo_camerale",
+          "valore": "VIA DELLA SPERANZA 4, 37069 Villafranca di Verona",
+          "fonte": "informazione-aziende.it",
+          "affidabilita": "pubblico_recente",
+          "nota": "Sede camerale diversa dalla sede operativa RUI (Via Quadrato)."
+        },
+        {
+          "tipo": "partita_iva",
+          "valore": "04037990233",
+          "fonte": "informazione-aziende.it",
+          "affidabilita": "pubblico_recente"
+        },
+        {
+          "tipo": "codice_fiscale",
+          "valore": "BNOLSN64C12D612K",
+          "fonte": "informazione-aziende.it",
+          "affidabilita": "pubblico_recente"
+        }
+      ]
+    },
+    {
+      "numero_iscrizione_rui": "B000511880",
+      "denominazione": "B.&P. SRL - BELLI & PARTNERS SRL",
+      "marchio": "Assiproject Broker",
+      "sezione": "B",
+      "data_iscrizione": "2015-02-09",
+      "inoperativo": false,
+      "titolo_individuale_sez_b": true,
+      "attivita": "Assicurativa",
+      "sedi": [
+        {
+          "tipo_sede": "Sede legale",
+          "indirizzo": "VIA MICHELANGELO BUONARROTI",
+          "cap": "55042",
+          "comune": "FORTE DEI MARMI",
+          "provincia": "LU"
+        }
+      ],
+      "siti_in_rui": ["www.assipbroker.com"],
+      "cariche": [
+        {
+          "qualifica": "Rappresentante Legale / Responsabile intermediazione",
+          "persona": "BELLI DAVIDE",
+          "rui": "B000147142",
+          "nato": "Carrara 1966-08-19",
+          "linkedin": "https://www.linkedin.com/in/davide-belli-44279252"
+        },
+        {
+          "qualifica": "Amministratore Delegato",
+          "persona": "LUCCHI LAURA",
+          "rui": "B000011013",
+          "nata": "Milano 1965-03-24"
+        }
+      ],
+      "collaboratori_i_livello": 4,
+      "altri_collaboratori": [
+        "BANDINI GIUSEPPE E000073837",
+        "VANNELLI MAURIZIO E000131305",
+        "OLIVO CHIARA E000638257"
+      ],
+      "contatti": [
+        {
+          "tipo": "telefono",
+          "valore": "+39 0584 85255",
+          "fonte": "assipbroker.com",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "fax",
+          "valore": "+39 0584 1660593",
+          "fonte": "assipbroker.com",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "email",
+          "valore": "info@assipbroker.com",
+          "fonte": "assipbroker.com",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "email",
+          "valore": "commerciale@assiprojectbroker.it",
+          "fonte": "post LinkedIn Davide Belli",
+          "affidabilita": "pubblico_recente"
+        },
+        {
+          "tipo": "pec",
+          "valore": "assiprojectbroker@pec.it",
+          "fonte": "assipbroker.com",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "linkedin_azienda",
+          "valore": "https://www.linkedin.com/company/assiproject-broker",
+          "affidabilita": "ufficiale"
+        }
+      ]
+    },
+    {
+      "numero_iscrizione_rui": "B000605379",
+      "denominazione": "ZURLO BROKER SRL UNIPERSONALE",
+      "sezione": "B",
+      "data_iscrizione": "2018-07-05",
+      "inoperativo": false,
+      "titolo_individuale_sez_b": true,
+      "attivita": "Assicurativa",
+      "piva": "02561240744",
+      "sedi": [
+        {
+          "tipo_sede": "Sede legale",
+          "indirizzo": "VIA MORIGGIA, 3",
+          "cap": "20900",
+          "comune": "MONZA",
+          "provincia": "MB"
+        }
+      ],
+      "siti_in_rui": [
+        "www.zurlobroker.it",
+        "www.zurlobroker.com",
+        "www.zurlobroker.eu",
+        "www.zurlobroker.net",
+        "www.zurlobroker.org",
+        "www.zbpoint.it",
+        "www.zbpoint.com",
+        "www.zbpoint.eu",
+        "www.zbpoint.net",
+        "www.zbpoint.org",
+        "www.assicurare-drone.it",
+        "www.assicurarebarca.it",
+        "www.assicurarebarca.com",
+        "www.polizzabarca.it",
+        "www.polizzabarca.com",
+        "www.polizzacyberisk.it",
+        "www.polizzenautica.it",
+        "www.polizzenautica.com",
+        "www.polizzeviaggi.eu",
+        "https://www.facebook.com/profile.php?id=61560290830247",
+        "https://www.linkedin.com/company/zurlobroker/?viewAsMember=true"
+      ],
+      "cariche": [
+        {
+          "qualifica": "Rappresentante Legale / Responsabile intermediazione",
+          "persona": "ZURLO DOMENICO",
+          "rui": "B000164038",
+          "nato": "Ostuni 1976-12-27",
+          "linkedin": "https://www.linkedin.com/in/domenico-zurlo-a42839131",
+          "email": "domenicozurlo@zurlobroker.it",
+          "sedi_personali": [
+            "Sede operativa MONZA VIA MORIGGIA",
+            "Sede operativa OSTUNI VIA CAVALIERI DI VITTORIO VENETO"
+          ]
+        }
+      ],
+      "collaboratori_i_livello": 49,
+      "nota": "Rete nazionale ~48-89 persone. Specialità RC professionale, cauzioni, nautica, travel.",
+      "contatti": [
+        {
+          "tipo": "email",
+          "valore": "info@zurlobroker.it",
+          "fonte": "zurlobroker.it",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "email",
+          "valore": "domenicozurlo@zurlobroker.it",
+          "fonte": "pagina contatti Zurlo Broker",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "pec",
+          "valore": "zurlobrokersrl@pec.it",
+          "fonte": "zurlobroker.it",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "telefono",
+          "valore": "+39 039 9712910",
+          "etichetta": "Monza",
+          "fonte": "LinkedIn company / convenzione Ordine Avvocati Monza",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "telefono",
+          "valore": "+39 080 4349018",
+          "etichetta": "Bari, via Domenico Nicolai 275",
+          "fonte": "zurlobroker.it",
+          "affidabilita": "ufficiale"
+        },
+        {
+          "tipo": "telefono",
+          "valore": "+39 0831 338719",
+          "etichetta": "Ostuni, via Cavalieri di Vittorio Veneto 14",
+          "fonte": "zurlobroker.it",
+          "affidabilita": "ufficiale"
+        }
+      ]
+    }
+  ]
+}

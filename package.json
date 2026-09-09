@@ -10,7 +10,8 @@
   "scripts": {
     "check-db": "node scripts/check-connection.js",
     "import": "node scripts/import.js",
-    "import:dry": "node scripts/import.js --dry-run"
+    "import:dry": "node scripts/import.js --dry-run",
+    "lookup": "node scripts/lookup-intermediario.js"
   },
   "dependencies": {
     "pg": "^8.13.1",
