@@ -61,15 +61,22 @@ type Payload = {
   alert: AlertRiga[];
 };
 
-function ChipList({ voci }: { voci: string[] }) {
+function ChipList({ voci, max = 6 }: { voci: string[]; max?: number }) {
   if (!voci.length) return <span className="text-muted-foreground">—</span>;
+  const visibili = voci.slice(0, max);
+  const extra = voci.length - visibili.length;
   return (
     <div className="flex max-w-md flex-wrap gap-1">
-      {voci.map((v) => (
+      {visibili.map((v) => (
         <span key={v} className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium">
           {v}
         </span>
       ))}
+      {extra > 0 ? (
+        <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground">
+          +{extra}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -263,7 +270,7 @@ export function FidelizzazionePage() {
         <Barre
           titolo="Compagnie con cui lavorano"
           voci={data?.grafici.compagnie ?? []}
-          vuoto="Nessun mandato intestato ai nominativi della rete. Per i collaboratori E le compagnie passano di solito dal principale."
+          vuoto="Nessuna compagnia in registro sui mandati della rete o degli altri intermediari con cui lavorano."
         />
         <Barre
           titolo="Altri intermediari con cui lavorano"

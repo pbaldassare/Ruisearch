@@ -102,18 +102,12 @@ export async function fidelizzazioneCliente(client, rui) {
   ]);
 
   const compagniePerRui = new Map();
-  const conteggioCompagnie = new Map();
   for (const m of mandati) {
     const nome = (m.ragione_sociale || m.codice_compagnia || '').trim();
     if (!nome) continue;
     if (!compagniePerRui.has(m.rui)) compagniePerRui.set(m.rui, []);
     const lista = compagniePerRui.get(m.rui);
     if (!lista.includes(nome)) lista.push(nome);
-  }
-  for (const lista of compagniePerRui.values()) {
-    for (const nome of lista) {
-      conteggioCompagnie.set(nome, (conteggioCompagnie.get(nome) || 0) + 1);
-    }
   }
 
   const principaliPerRui = new Map();
@@ -131,11 +125,34 @@ export async function fidelizzazioneCliente(client, rui) {
     conteggioPrincipali.set(etichetta, (conteggioPrincipali.get(etichetta) || 0) + 1);
   }
 
+  const ruiAltri = [...new Set(altri.map((p) => p.rui_principale).filter(Boolean))];
+  const mandatiAltri = await caricaMandatiRete(client, ruiAltri);
+  const compagniePerPrincipale = new Map();
+  for (const m of mandatiAltri) {
+    const nome = (m.ragione_sociale || m.codice_compagnia || '').trim();
+    if (!nome) continue;
+    if (!compagniePerPrincipale.has(m.rui)) compagniePerPrincipale.set(m.rui, []);
+    const lista = compagniePerPrincipale.get(m.rui);
+    if (!lista.includes(nome)) lista.push(nome);
+  }
+
+  const conteggioCompagnie = new Map();
+
   const voci = base.map((i) => {
-    const compagnie = (compagniePerRui.get(i.rui_collegato) || []).slice().sort((a, b) => a.localeCompare(b, 'it'));
+    const compagnieProprie = (compagniePerRui.get(i.rui_collegato) || []).slice();
     const altriPrincipali = (principaliPerRui.get(i.rui_collegato) || [])
       .slice()
       .sort((a, b) => (a.denominazione || a.rui).localeCompare(b.denominazione || b.rui, 'it'));
+    const viaAltri = [];
+    for (const p of altriPrincipali) {
+      for (const nome of compagniePerPrincipale.get(p.rui) || []) {
+        if (!compagnieProprie.includes(nome) && !viaAltri.includes(nome)) viaAltri.push(nome);
+      }
+    }
+    const compagnie = [...compagnieProprie, ...viaAltri].sort((a, b) => a.localeCompare(b, 'it'));
+    for (const nome of compagnie) {
+      conteggioCompagnie.set(nome, (conteggioCompagnie.get(nome) || 0) + 1);
+    }
     return {
       ...i,
       indice: i.inoperativo ? 20 : 60,
