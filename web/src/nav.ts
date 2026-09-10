@@ -67,7 +67,7 @@ export const VOCI: VoceMenu[] = [
     label: "Query",
     path: "/app/query",
     icon: MessageSquare,
-    descrizione: "Domande in italiano sul registro. Dopo lo script puoi approfondire con Kimi.",
+    descrizione: "Domande in italiano sul registro. Dopo lo script puoi approfondire ulteriormente.",
   },
   {
     id: "documentazione",
