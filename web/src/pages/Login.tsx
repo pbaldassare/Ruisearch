@@ -51,7 +51,7 @@ export function LoginPage() {
               autoComplete="username"
               value={indirizzo}
               onChange={(e) => setIndirizzo(e.target.value)}
-              placeholder="nome@dominio.it"
+              placeholder="es. nome@dominio.it"
               required
             />
           </label>
@@ -63,7 +63,7 @@ export function LoginPage() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              placeholder="la tua password"
               required
             />
           </label>
