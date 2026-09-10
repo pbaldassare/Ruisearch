@@ -67,7 +67,7 @@ export const VOCI: VoceMenu[] = [
     label: "Query",
     path: "/app/query",
     icon: MessageSquare,
-    descrizione: "Domande in italiano sulle dimensioni del registro.",
+    descrizione: "Domande in italiano sul registro. Dopo lo script puoi approfondire con Kimi.",
   },
   {
     id: "documentazione",

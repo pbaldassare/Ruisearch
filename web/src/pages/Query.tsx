@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { MessageSquare } from "lucide-react";
-import { getJson, qs } from "@/api";
+import { MessageSquare, Sparkles } from "lucide-react";
+import { getJson, postJson, qs } from "@/api";
 import { Button, Card, Input } from "@/components/ui";
 import { useApi } from "@/lib/useApi";
 import { formatNumero } from "@/lib/format";
@@ -26,6 +26,15 @@ type RispostaDomanda = {
   si?: boolean;
 };
 
+type PassoAi = { origine: "rui" | "web"; strumento: string; dettaglio: string };
+
+type RispostaAi = {
+  domanda: string;
+  modello?: string;
+  risposta: string;
+  passi: PassoAi[];
+};
+
 const ESEMPI = [
   "quanti intermediari ha consulbrokers",
   "quanti mandati ha consulbrokers spa",
@@ -39,6 +48,8 @@ export function QueryPage() {
   const [risposta, setRisposta] = useState<RispostaDomanda | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
+  const [ai, setAi] = useState<RispostaAi | null>(null);
+  const [aiErrore, setAiErrore] = useState<string | null>(null);
 
   async function invia(e?: FormEvent, preset?: string) {
     e?.preventDefault();
@@ -47,6 +58,8 @@ export function QueryPage() {
     setTesto(q);
     setInCorso(true);
     setErrore(null);
+    setAi(null);
+    setAiErrore(null);
     try {
       const out = await getJson<RispostaDomanda>(`/api/query${qs({ q })}`);
       setRisposta(out);
@@ -89,6 +102,17 @@ export function QueryPage() {
       {errore ? <p className="text-sm text-destructive">{errore}</p> : null}
 
       {risposta ? <Risultato domanda={risposta} /> : null}
+
+      {risposta ? (
+        <ApprofondimentoAi
+          domanda={testo}
+          risultato={risposta}
+          ai={ai}
+          errore={aiErrore}
+          onAi={setAi}
+          onErrore={setAiErrore}
+        />
+      ) : null}
 
       <Card>
         <h3 className="mb-3 text-lg font-bold">Caratteristiche interrogabili</h3>
@@ -158,6 +182,80 @@ function Risultato({ domanda }: { domanda: RispostaDomanda }) {
             </li>
           ))}
         </ul>
+      ) : null}
+    </Card>
+  );
+}
+
+function ApprofondimentoAi({
+  domanda,
+  risultato,
+  ai,
+  errore,
+  onAi,
+  onErrore,
+}: {
+  domanda: string;
+  risultato: RispostaDomanda;
+  ai: RispostaAi | null;
+  errore: string | null;
+  onAi: (v: RispostaAi | null) => void;
+  onErrore: (v: string | null) => void;
+}) {
+  const { data: cfg } = useApi<{ kimi_pronta?: boolean }>("/api/config");
+  const [inCorso, setInCorso] = useState(false);
+
+  async function avvia() {
+    setInCorso(true);
+    onErrore(null);
+    try {
+      const out = await postJson<RispostaAi>("/api/query/ai", { q: domanda, risultato });
+      onAi(out);
+    } catch (err) {
+      onAi(null);
+      onErrore(err instanceof Error ? err.message : "approfondimento non riuscito");
+    } finally {
+      setInCorso(false);
+    }
+  }
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-lg font-bold">Approfondimento AI</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Dopo lo script, Kimi verifica prima sul RUI e poi sul web ciò che manca.
+          </p>
+        </div>
+        <Button type="button" onClick={() => void avvia()} disabled={inCorso}>
+          <Sparkles className="h-4 w-4" />
+          {inCorso ? "Verifico…" : "Cerca con AI"}
+        </Button>
+      </div>
+      {cfg && cfg.kimi_pronta === false ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Manca la chiave Kimi (Moonshot) sul server. Incolla <code>MOONSHOT_API_KEY</code> nel{" "}
+          <code>.env</code> e riavvia l&apos;API.
+        </p>
+      ) : null}
+      {errore ? <p className="mt-3 text-sm text-destructive">{errore}</p> : null}
+      {ai ? (
+        <div className="mt-4 space-y-3">
+          {ai.passi.length > 0 ? (
+            <ul className="flex flex-wrap gap-2">
+              {ai.passi.map((p, i) => (
+                <li
+                  key={`${p.strumento}-${i}`}
+                  className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold"
+                >
+                  {p.origine === "rui" ? "RUI" : "Web"} · {p.dettaglio}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="space-y-2 text-sm whitespace-pre-wrap">{ai.risposta}</div>
+        </div>
       ) : null}
     </Card>
   );

@@ -300,7 +300,7 @@ export async function rete(client, rui, { sezione } = {}) {
   };
 }
 
-export async function scheda(client, rui, { sezione } = {}) {
+export async function scheda(client, rui, { sezione, geocodifica = true } = {}) {
   const numero = normalizzaRui(rui);
   const sezioni = sezioniRichieste(sezione);
   const soggetti = await anagrafica(client, numero, { sezione });
@@ -364,7 +364,7 @@ export async function scheda(client, rui, { sezione } = {}) {
     : [];
 
   let mappa = [];
-  if (soggetto.persona_giuridica && sedi.rows.length > 0) {
+  if (geocodifica && soggetto.persona_giuridica && sedi.rows.length > 0) {
     const { puntiSedi } = await import('./geo.js');
     mappa = await puntiSedi(client, numero, sedi.rows, { geocodifica: true });
   }

@@ -6,6 +6,7 @@ import http from 'node:http';
 import { verificaAdmin } from '../src/auth-login.js';
 import { closePool, withClient } from '../src/db.js';
 import { interpretaDomanda } from '../src/domanda.js';
+import { approfondisciConKimi, kimiPronta } from '../src/kimi-approfondisci.js';
 import { DIMENSIONI, ESEMPI_DOMANDA } from '../src/dimensioni.js';
 import { documentazionePubblica, specificaOpenApi } from '../src/documentazione.js';
 import {
@@ -137,10 +138,17 @@ async function gestisci(req, res) {
     invia(res, 200, verificaAdmin(corpo.email, corpo.password));
     return;
   }
+  if (path === '/query/ai' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await withClient((client) => approfondisciConKimi(client, corpo));
+    invia(res, 200, out);
+    return;
+  }
   if (path === '/config') {
     invia(res, 200, {
       maps_key: (process.env.GOOGLE_MAPS_API_KEY || '').trim(),
       api_key_richiesta: Boolean(API_KEY),
+      kimi_pronta: kimiPronta(),
     });
     return;
   }
@@ -157,7 +165,7 @@ async function gestisci(req, res) {
 
   if (
     req.method !== 'GET'
-    && !(req.method === 'POST' && (path === '/query' || path === '/v1/query' || path === '/auth/login'))
+    && !(req.method === 'POST' && (path === '/query' || path === '/v1/query' || path === '/query/ai' || path === '/auth/login'))
   ) {
     invia(res, 405, { errore: 'metodo non ammesso' });
     return;
