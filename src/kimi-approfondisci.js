@@ -7,8 +7,9 @@ const BASE = (process.env.KIMI_BASE_URL || process.env.MOONSHOT_BASE_URL || 'htt
   .trim()
   .replace(/\/$/, '');
 const MODELLO = (process.env.KIMI_MODEL || 'kimi-k2.6').trim();
-const MAX_GIRI = 10;
-const MAX_WEB = 5;
+const MAX_GIRI = 6;
+const MAX_WEB = 3;
+const BUDGET_MS = 75_000;
 
 const FONDAMENTALI = ['email', 'cellulare', 'sede'];
 
@@ -365,7 +366,7 @@ async function kimiFetch(percorso, { method = 'GET', body } = {}) {
       'content-type': 'application/json',
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(80_000),
   });
   const testo = await risposta.text();
   let corpo = null;
@@ -402,7 +403,7 @@ async function caricaFormule() {
   const tools = [];
   const nomeVersoUri = { ...uri };
 
-  for (const formula of ['moonshot/web-search:latest', 'moonshot/fetch:latest']) {
+  for (const formula of ['moonshot/web-search:latest']) {
     try {
       const out = await kimiFetch(`/formulas/${formula}/tools`);
       for (const tool of out.tools || []) {
@@ -480,16 +481,6 @@ export async function approfondisciConKimi(client, corpo) {
   if (!risultato || typeof risultato !== 'object') {
     throw erroreHttp(400, 'esegui prima una ricerca dallo script, poi chiedi l\'approfondimento AI.');
   }
-  if (!chiaveKimi()) {
-    throw erroreHttp(
-      503,
-      'manca MOONSHOT_API_KEY nel .env. Incolla la chiave API di Kimi (Moonshot) e riavvia l\'API.',
-    );
-  }
-
-  const formule = await caricaFormule();
-  const tools = [...STRUMENTI_RUI, ...formule.tools];
-
   const passi = [];
   let ruiUsato = 0;
   let webUsato = 0;
@@ -513,6 +504,34 @@ export async function approfondisciConKimi(client, corpo) {
     }
   }
 
+  function ripiego(sintesiKimi) {
+    const fondamentali = fondiFondamentali(copertura, null);
+    const categorie = categorieDaRegistro(schedaNota, fondamentali);
+    const sintesi = testoPieno(sintesiKimi)
+      || testoPieno(risultato.risposta)
+      || (risultato.scelto
+        ? `${risultato.scelto.denominazione} · ${risultato.scelto.numero_iscrizione_rui}`
+        : 'Ecco i dati trovati sul soggetto.');
+    return {
+      domanda,
+      modello: MODELLO,
+      sintesi,
+      categorie,
+      risposta: sintesi,
+      passi,
+      fondamentali,
+      da_cercare: copertura.da_cercare,
+    };
+  }
+
+  if (!chiaveKimi()) {
+    if (schedaNota) return ripiego();
+    throw erroreHttp(
+      503,
+      'manca MOONSHOT_API_KEY nel .env. Incolla la chiave API di Kimi (Moonshot) e riavvia l\'API.',
+    );
+  }
+
   const istruzioneBuchi = copertura.da_cercare.length
     ? `Fondamentali MANCANTI — cercali per forza sul web: ${copertura.da_cercare.join(', ')}.`
     : 'Email, cellulare e sede/residenza sono già presenti: non cercarli sul web.';
@@ -521,6 +540,15 @@ export async function approfondisciConKimi(client, corpo) {
     .map((id) => `${id}: ${copertura[id].valori[0]}`)
     .join(' · ');
 
+  let formule;
+  try {
+    formule = await caricaFormule();
+  } catch (err) {
+    console.error('approfondimento: formule', err.message);
+    return ripiego();
+  }
+  const tools = [...STRUMENTI_RUI, ...formule.tools];
+
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     {
@@ -528,88 +556,95 @@ export async function approfondisciConKimi(client, corpo) {
       content: [
         `Domanda originale: ${domanda}`,
         'Risultato dello script (non AI):',
-        jsonBreve(risultato, 8000),
+        jsonBreve(risultato, 6000),
         ruiNoto ? `Soggetto RUI: ${ruiNoto}` : 'Soggetto da risolvere con cerca_rui.',
+        schedaNota ? `Scheda RUI già caricata (non richiamare scheda_rui sullo stesso soggetto):\n${jsonBreve(schedaNota, 7000)}` : '',
         giaPresenti ? `Già in registro/contatti (NON cercare sul web): ${giaPresenti}` : 'Nessun fondamentale già in registro.',
         istruzioneBuchi,
-        'Poi, se serve, arricchisci con altri dati interessanti.',
-      ].join('\n\n'),
+        'Poi, se serve, arricchisci con altri dati interessanti. Rispondi appena puoi con i due blocchi JSON.',
+      ].filter(Boolean).join('\n\n'),
     },
   ];
   const corpoChat = { model: MODELLO, messages, tools };
   if (/k3/i.test(MODELLO)) corpoChat.reasoning_effort = 'low';
 
-  for (let giro = 0; giro < MAX_GIRI; giro += 1) {
-    const resp = await kimiFetch('/chat/completions', { method: 'POST', body: corpoChat });
-    const message = resp?.choices?.[0]?.message;
-    if (!message) throw erroreHttp(502, 'Kimi non ha restituito una risposta.');
-    const chiamate = message.tool_calls || [];
-    if (chiamate.length === 0) {
-      const grezzo = String(message.content || '').trim() || 'Nessun approfondimento.';
-      const { testo, blocchi } = parseBlocchi(grezzo);
-      const fondamentali = fondiFondamentali(copertura, blocchi.fondamentali);
-      const daModello = normalizzaCategorie(blocchi.scheda);
-      const categorie = daModello.length ? daModello : categorieDaRegistro(schedaNota, fondamentali);
-      const sintesi = testoPieno(blocchi.scheda?.sintesi) || testo;
-      return {
-        domanda,
-        modello: MODELLO,
-        sintesi,
-        categorie,
-        risposta: sintesi,
-        passi,
-        fondamentali,
-        da_cercare: copertura.da_cercare,
-      };
-    }
-
-    messages.push(messaggioAssistente(message));
-
-    for (const tc of chiamate) {
-      const nome = tc.function?.name || '';
-      const args = prendiArgomenti(tc.function?.arguments);
-      const dettaglio = args.q || args.rui || args.query || args.url || nome;
-      let contenuto;
-
-      if (STRUMENTI_RUI.some((t) => t.function.name === nome)) {
-        ruiUsato += 1;
-        passi.push({ origine: 'rui', strumento: nome, dettaglio: String(dettaglio) });
-        try {
-          const outRui = await eseguiRui(client, nome, args);
-          if (outRui?.mancanti) copertura = outRui.mancanti;
-          if (nome === 'scheda_rui' && outRui?.soggetto) schedaNota = outRui;
-          contenuto = jsonBreve(outRui);
-        } catch (err) {
-          contenuto = jsonBreve({ errore: err.message || 'errore RUI' });
-        }
-      } else if (eToolWeb(nome)) {
-        if (ruiUsato === 0) {
-          contenuto = jsonBreve({
-            errore: 'Prima interroga il RUI con cerca_rui, scheda_rui o rete_rui. Poi puoi cercare sul web.',
-          });
-        } else if (webUsato >= MAX_WEB) {
-          contenuto = jsonBreve({ errore: `limite di ${MAX_WEB} ricerche web raggiunto` });
-        } else {
-          webUsato += 1;
-          passi.push({ origine: 'web', strumento: nome, dettaglio: String(dettaglio) });
-          try {
-            const out = await eseguiWeb(nome, tc.function?.arguments, formule.nomeVersoUri);
-            contenuto = typeof out === 'string' ? out : jsonBreve(out);
-          } catch (err) {
-            contenuto = jsonBreve({ errore: err.message || 'errore web' });
-          }
-        }
-      } else {
-        contenuto = jsonBreve({ errore: `tool sconosciuto: ${nome}` });
+  const inizio = Date.now();
+  try {
+    for (let giro = 0; giro < MAX_GIRI; giro += 1) {
+      if (Date.now() - inizio > BUDGET_MS) return ripiego();
+      const resp = await kimiFetch('/chat/completions', { method: 'POST', body: corpoChat });
+      const message = resp?.choices?.[0]?.message;
+      if (!message) return ripiego();
+      const chiamate = message.tool_calls || [];
+      if (chiamate.length === 0) {
+        const grezzo = String(message.content || '').trim() || 'Nessun approfondimento.';
+        const { testo, blocchi } = parseBlocchi(grezzo);
+        const fondamentali = fondiFondamentali(copertura, blocchi.fondamentali);
+        const daModello = normalizzaCategorie(blocchi.scheda);
+        const categorie = daModello.length ? daModello : categorieDaRegistro(schedaNota, fondamentali);
+        const sintesi = testoPieno(blocchi.scheda?.sintesi) || testo;
+        return {
+          domanda,
+          modello: MODELLO,
+          sintesi,
+          categorie,
+          risposta: sintesi,
+          passi,
+          fondamentali,
+          da_cercare: copertura.da_cercare,
+        };
       }
 
-      messages.push({
-        role: 'tool',
-        tool_call_id: tc.id,
-        content: contenuto,
-      });
-    }
-  }
+      messages.push(messaggioAssistente(message));
 
-  throw erroreHttp(504, 'Kimi ha superato il numero di passi. Riprova con una domanda più stretta.');
+      for (const tc of chiamate) {
+        const nome = tc.function?.name || '';
+        const args = prendiArgomenti(tc.function?.arguments);
+        const dettaglio = args.q || args.rui || args.query || args.url || nome;
+        let contenuto;
+
+        if (STRUMENTI_RUI.some((t) => t.function.name === nome)) {
+          ruiUsato += 1;
+          passi.push({ origine: 'rui', strumento: nome, dettaglio: String(dettaglio) });
+          try {
+            const outRui = await eseguiRui(client, nome, args);
+            if (outRui?.mancanti) copertura = outRui.mancanti;
+            if (nome === 'scheda_rui' && outRui?.soggetto) schedaNota = outRui;
+            contenuto = jsonBreve(outRui);
+          } catch (err) {
+            contenuto = jsonBreve({ errore: err.message || 'errore RUI' });
+          }
+        } else if (eToolWeb(nome)) {
+          if (ruiUsato === 0) {
+            contenuto = jsonBreve({
+              errore: 'Prima interroga il RUI con cerca_rui, scheda_rui o rete_rui. Poi puoi cercare sul web.',
+            });
+          } else if (webUsato >= MAX_WEB) {
+            contenuto = jsonBreve({ errore: `limite di ${MAX_WEB} ricerche web raggiunto` });
+          } else {
+            webUsato += 1;
+            passi.push({ origine: 'web', strumento: nome, dettaglio: String(dettaglio) });
+            try {
+              const out = await eseguiWeb(nome, tc.function?.arguments, formule.nomeVersoUri);
+              contenuto = typeof out === 'string' ? out : jsonBreve(out);
+            } catch (err) {
+              contenuto = jsonBreve({ errore: err.message || 'errore web' });
+            }
+          }
+        } else {
+          contenuto = jsonBreve({ errore: `tool sconosciuto: ${nome}` });
+        }
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: contenuto,
+        });
+      }
+    }
+    return ripiego();
+  } catch (err) {
+    console.error('approfondimento:', err.message || err);
+    return ripiego();
+  }
 }
