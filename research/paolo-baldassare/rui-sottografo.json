@@ -1,0 +1,109 @@
+[
+  {
+    "soggetto": {
+      "oss": "9746",
+      "inoperativo": false,
+      "data_inizio_inoperativita": null,
+      "numero_iscrizione_rui": "E000188700",
+      "data_iscrizione": "2007-06-01",
+      "cognome_nome": "BALDASSARE PAOLO",
+      "stato": "ITALIA",
+      "comune_nascita": "SARZANA",
+      "data_nascita": "1974-10-21",
+      "ragione_sociale": null,
+      "provincia_nascita": "SP",
+      "titolo_individuale_sez_a": null,
+      "attivita_esercitata_sez_a": null,
+      "titolo_individuale_sez_b": null,
+      "attivita_esercitata_sez_b": null,
+      "autorita_vigilanza_estera": null,
+      "stato_estero": null,
+      "numero_iscrizione_estero": null,
+      "data_iscrizione_estero": null,
+      "regime_operativo": null,
+      "sezione": "E",
+      "denominazione": "BALDASSARE PAOLO"
+    },
+    "sedi": [],
+    "siti_internet": [],
+    "mandati": [],
+    "cariche": [],
+    "rapporti": {
+      "come_collaboratore": [
+        {
+          "livello": "I",
+          "qualifica": "Collaboratore di intermediario",
+          "intermediario": "A000173967",
+          "collaboratore_i": "E000188700",
+          "collaboratore_ii": null
+        },
+        {
+          "livello": "I",
+          "qualifica": "Collaboratore di intermediario",
+          "intermediario": "A000773656",
+          "collaboratore_i": "E000188700",
+          "collaboratore_ii": null
+        },
+        {
+          "livello": "I",
+          "qualifica": "Collaboratore di intermediario",
+          "intermediario": "B000053924",
+          "collaboratore_i": "E000188700",
+          "collaboratore_ii": null
+        },
+        {
+          "livello": "I",
+          "qualifica": "Collaboratore di intermediario",
+          "intermediario": "B000511880",
+          "collaboratore_i": "E000188700",
+          "collaboratore_ii": null
+        },
+        {
+          "livello": "I",
+          "qualifica": "Collaboratore di intermediario",
+          "intermediario": "B000605379",
+          "collaboratore_i": "E000188700",
+          "collaboratore_ii": null
+        }
+      ],
+      "come_principale": []
+    },
+    "collegati": [
+      {
+        "numero_iscrizione_rui": "A000173967",
+        "sezione": "A",
+        "denominazione": "BELLONI MAURIZIO",
+        "data_iscrizione": "2007-04-27",
+        "inoperativo": false
+      },
+      {
+        "numero_iscrizione_rui": "A000773656",
+        "sezione": "A",
+        "denominazione": "MAG MOBILITY",
+        "data_iscrizione": "2025-03-11",
+        "inoperativo": false
+      },
+      {
+        "numero_iscrizione_rui": "B000053924",
+        "sezione": "B",
+        "denominazione": "BONI ALESSANDRO",
+        "data_iscrizione": "2013-02-27",
+        "inoperativo": false
+      },
+      {
+        "numero_iscrizione_rui": "B000511880",
+        "sezione": "B",
+        "denominazione": "B.&P. SRL - BELLI & PARTNERS SRL",
+        "data_iscrizione": "2015-02-09",
+        "inoperativo": false
+      },
+      {
+        "numero_iscrizione_rui": "B000605379",
+        "sezione": "B",
+        "denominazione": "ZURLO BROKER SRL UNIPERSONALE",
+        "data_iscrizione": "2018-07-05",
+        "inoperativo": false
+      }
+    ]
+  }
+]

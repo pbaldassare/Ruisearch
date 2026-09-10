@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 40 40% 94%;
+    --foreground: 30 15% 13%;
+    --card: 0 0% 100%;
+    --card-foreground: 30 15% 13%;
+    --primary: 190 75% 33%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 30% 89%;
+    --secondary-foreground: 30 15% 13%;
+    --muted: 40 28% 91%;
+    --muted-foreground: 35 10% 38%;
+    --accent: 191 92% 26%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 40 22% 85%;
+    --input: 40 22% 82%;
+    --ring: 190 75% 33%;
+    --radius: 1rem;
+    --shadow-glow: 0 12px 32px -12px hsl(190 75% 33% / 0.35);
+    --shadow-card: 0 1px 2px hsl(30 20% 15% / 0.05), 0 10px 28px -18px hsl(30 20% 15% / 0.16);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    letter-spacing: 0;
+    line-height: 1.65;
+    font-weight: 500;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+    font-weight: 700;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply rounded-3xl border border-border/70 bg-card/85;
+    box-shadow: var(--shadow-card);
+  }
+}
