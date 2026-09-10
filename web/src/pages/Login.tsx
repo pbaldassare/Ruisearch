@@ -38,7 +38,7 @@ export function LoginPage() {
           </div>
           <h1 className="text-3xl font-bold">Ruisearch</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Area riservata del Registro Unico Intermediari
+            Accesso amministratore all'area riservata
           </p>
         </div>
 

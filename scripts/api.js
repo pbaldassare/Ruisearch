@@ -3,6 +3,7 @@
 // Dashboard: /overview …  Esterni: /v1/… con X-API-Key.
 
 import http from 'node:http';
+import { verificaAdmin } from '../src/auth-login.js';
 import { closePool, withClient } from '../src/db.js';
 import { interpretaDomanda } from '../src/domanda.js';
 import { DIMENSIONI, ESEMPI_DOMANDA } from '../src/dimensioni.js';
@@ -131,6 +132,11 @@ async function gestisci(req, res) {
     invia(res, 200, { ok: true });
     return;
   }
+  if (path === '/auth/login' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    invia(res, 200, verificaAdmin(corpo.email, corpo.password));
+    return;
+  }
   if (path === '/config') {
     invia(res, 200, {
       maps_key: (process.env.GOOGLE_MAPS_API_KEY || '').trim(),
@@ -149,7 +155,10 @@ async function gestisci(req, res) {
     return;
   }
 
-  if (req.method !== 'GET' && !(req.method === 'POST' && (path === '/query' || path === '/v1/query'))) {
+  if (
+    req.method !== 'GET'
+    && !(req.method === 'POST' && (path === '/query' || path === '/v1/query' || path === '/auth/login'))
+  ) {
     invia(res, 405, { errore: 'metodo non ammesso' });
     return;
   }

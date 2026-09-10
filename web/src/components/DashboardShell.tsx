@@ -7,7 +7,7 @@ import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
 
 export function DashboardShell({ children }: { children: ReactNode }) {
-  const { email, logout } = useAuth();
+  const { email, ruolo, logout } = useAuth();
   const locazione = useLocation();
   const [pannelloAperto, setPannelloAperto] = useState(false);
   const attiva = VOCI.find((v) =>
@@ -55,7 +55,16 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
   const piede = (
     <div className="border-t border-border/70 p-4">
-      {email ? <div className="mb-2 truncate text-sm text-muted-foreground">{email}</div> : null}
+      {email ? (
+        <div className="mb-3">
+          {ruolo === "admin" ? (
+            <div className="mb-1 inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+              Admin
+            </div>
+          ) : null}
+          <div className="truncate text-sm text-muted-foreground">{email}</div>
+        </div>
+      ) : null}
       <Button variant="outline" size="sm" className="w-full" onClick={logout}>
         Esci
       </Button>

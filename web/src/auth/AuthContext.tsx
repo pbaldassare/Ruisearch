@@ -1,38 +1,55 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { postJson } from "@/api";
 
-const STORAGE_KEY = "rui_session_email";
+const STORAGE_KEY = "rui_session_v2";
+
+type Sessione = {
+  email: string;
+  ruolo: "admin";
+};
 
 type AuthContextValue = {
   email: string | null;
+  ruolo: "admin" | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function leggiSessione(): Sessione | null {
+  try {
+    const grezzo = sessionStorage.getItem(STORAGE_KEY);
+    if (!grezzo) return null;
+    const parsed = JSON.parse(grezzo) as Sessione;
+    if (!parsed?.email || parsed.ruolo !== "admin") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [email, setEmail] = useState<string | null>(() => sessionStorage.getItem(STORAGE_KEY));
+  const [sessione, setSessione] = useState<Sessione | null>(() => leggiSessione());
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      email,
+      email: sessione?.email ?? null,
+      ruolo: sessione?.ruolo ?? null,
       async login(indirizzo, password) {
-        const pulita = indirizzo.trim().toLowerCase();
-        if (!pulita || !pulita.includes("@")) {
-          throw new Error("Inserisci un'email valida.");
-        }
-        if (!password.trim()) {
-          throw new Error("Inserisci la password.");
-        }
-        sessionStorage.setItem(STORAGE_KEY, pulita);
-        setEmail(pulita);
+        const esito = await postJson<Sessione>("/api/auth/login", {
+          email: indirizzo,
+          password,
+        });
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(esito));
+        setSessione(esito);
       },
       logout() {
         sessionStorage.removeItem(STORAGE_KEY);
-        setEmail(null);
+        setSessione(null);
       },
     }),
-    [email],
+    [sessione],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Search,
   Shield,
+  User,
   Users,
   X,
 } from "lucide-react";
@@ -121,7 +122,10 @@ function Header({ riservata, etichetta }: { riservata: string; etichetta: string
         </nav>
         <div className="flex items-center gap-2">
           <Link to={riservata}>
-            <Button size="sm">{etichetta}</Button>
+            <Button size="sm">
+              <User className="h-4 w-4" />
+              {etichetta}
+            </Button>
           </Link>
           <Button
             variant="outline"
@@ -172,7 +176,10 @@ function Hero({ riservata }: { riservata: string }) {
               <Button>Prova una ricerca</Button>
             </a>
             <Link to={riservata}>
-              <Button variant="outline">Area riservata</Button>
+              <Button variant="outline">
+                <User className="h-4 w-4" />
+                Area riservata
+              </Button>
             </Link>
           </div>
         </div>

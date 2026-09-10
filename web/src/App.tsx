@@ -17,8 +17,8 @@ import { QueryPage } from "@/pages/Query";
 import { DocumentazionePage } from "@/pages/Documentazione";
 
 function RichiedeAccesso() {
-  const { email } = useAuth();
-  if (!email) return <Navigate to="/login" replace />;
+  const { email, ruolo } = useAuth();
+  if (!email || ruolo !== "admin") return <Navigate to="/login" replace />;
   return (
     <DashboardShell>
       <Outlet />
