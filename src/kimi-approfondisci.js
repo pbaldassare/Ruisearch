@@ -9,7 +9,7 @@ const BASE = (process.env.KIMI_BASE_URL || process.env.MOONSHOT_BASE_URL || 'htt
 const MODELLO = (process.env.KIMI_MODEL || 'kimi-k2.6').trim();
 const MAX_GIRI = 6;
 const MAX_WEB = 3;
-const BUDGET_MS = 75_000;
+const BUDGET_MS = 50_000;
 
 const FONDAMENTALI = ['email', 'cellulare', 'sede'];
 
@@ -366,7 +366,7 @@ async function kimiFetch(percorso, { method = 'GET', body } = {}) {
       'content-type': 'application/json',
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(80_000),
+    signal: AbortSignal.timeout(45_000),
   });
   const testo = await risposta.text();
   let corpo = null;
