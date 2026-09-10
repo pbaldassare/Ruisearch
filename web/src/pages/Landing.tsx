@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   BookOpen,
@@ -12,19 +12,17 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { getJson, qs, type IntermediarioLista, type Overview, type Pagina } from "@/api";
+import { qs, type IntermediarioLista, type Overview, type Pagina } from "@/api";
 import { useAuth } from "@/auth/AuthContext";
 import { Button, Input } from "@/components/ui";
 import { useApi, useDebounce } from "@/lib/useApi";
 import { formatNumero } from "@/lib/format";
-import { cn } from "@/lib/cn";
 
 const ANCORE = [
   { id: "prodotto", label: "Il prodotto" },
   { id: "cerca", label: "Cerca" },
   { id: "funzioni", label: "Funzioni" },
   { id: "faq", label: "FAQ" },
-  { id: "contatti", label: "Contatti" },
 ];
 
 const FUNZIONI = [
@@ -96,7 +94,6 @@ export function LandingPage() {
         <CercaLive riservata={riservata} />
         <Funzioni />
         <Faq />
-        <Contatti />
       </main>
       <Footer riservata={riservata} />
     </div>
@@ -311,7 +308,7 @@ function Funzioni() {
 function Faq() {
   const [aperta, setAperta] = useState<number | null>(0);
   return (
-    <section id="faq" className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
+    <section id="faq" className="mx-auto max-w-6xl px-4 py-12 pb-20 sm:px-6 sm:pb-24">
       <h2 className="text-3xl">Domande frequenti</h2>
       <div className="mt-6 space-y-3">
         {FAQ.map((voce, i) => {
@@ -331,77 +328,6 @@ function Faq() {
             </div>
           );
         })}
-      </div>
-    </section>
-  );
-}
-
-function Contatti() {
-  const [nome, setNome] = useState("");
-  const [indirizzo, setIndirizzo] = useState("");
-  const [messaggio, setMessaggio] = useState("");
-  const [inviato, setInviato] = useState(false);
-  const [errore, setErrore] = useState<string | null>(null);
-
-  const mailto = useMemo(() => {
-    const oggetto = encodeURIComponent(`RUI Search — contatto da ${nome || "sito"}`);
-    const corpo = encodeURIComponent(`${messaggio}\n\n— ${nome}\n${indirizzo}`);
-    return `mailto:paolo.baldassare@gmail.com?subject=${oggetto}&body=${corpo}`;
-  }, [nome, indirizzo, messaggio]);
-
-  function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setErrore(null);
-    if (!nome.trim() || !indirizzo.includes("@") || messaggio.trim().length < 8) {
-      setErrore("Compila nome, un'email valida e un messaggio di almeno 8 caratteri.");
-      return;
-    }
-    window.location.href = mailto;
-    setInviato(true);
-  }
-
-  return (
-    <section id="contatti" className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-      <div className="glass-card p-8 sm:p-10">
-        <h2 className="text-3xl">Parliamone</h2>
-        <p className="mt-2 max-w-xl text-muted-foreground">
-          Accesso alla console, API per un gestionale o una domanda sul registro.
-        </p>
-        {inviato ? (
-          <p className="mt-6 text-sm font-semibold text-primary">
-            Si è aperto il client di posta. Se non succede, scrivi a paolo.baldassare@gmail.com.
-          </p>
-        ) : (
-          <form className="mt-6 grid gap-4 sm:max-w-xl" onSubmit={onSubmit}>
-            <label className="text-sm font-semibold">
-              Nome
-              <Input className="mt-2" value={nome} onChange={(e) => setNome(e.target.value)} required />
-            </label>
-            <label className="text-sm font-semibold">
-              Email
-              <Input
-                className="mt-2"
-                type="email"
-                value={indirizzo}
-                onChange={(e) => setIndirizzo(e.target.value)}
-                required
-              />
-            </label>
-            <label className="text-sm font-semibold">
-              Messaggio
-              <textarea
-                className={cn(
-                  "mt-2 min-h-28 w-full rounded-3xl border border-input bg-card px-4 py-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
-                value={messaggio}
-                onChange={(e) => setMessaggio(e.target.value)}
-                required
-              />
-            </label>
-            {errore ? <p className="text-sm text-destructive">{errore}</p> : null}
-            <Button type="submit">Invia</Button>
-          </form>
-        )}
       </div>
     </section>
   );
