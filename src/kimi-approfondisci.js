@@ -6,7 +6,7 @@ import { cercaIntermediari, rete, scheda } from './query.js';
 const BASE = (process.env.KIMI_BASE_URL || process.env.MOONSHOT_BASE_URL || 'https://api.moonshot.ai/v1')
   .trim()
   .replace(/\/$/, '');
-const MODELLO = (process.env.KIMI_MODEL || 'kimi-k2.5').trim();
+const MODELLO = (process.env.KIMI_MODEL || 'kimi-k2.6').trim();
 const MAX_GIRI = 10;
 const MAX_WEB = 5;
 
