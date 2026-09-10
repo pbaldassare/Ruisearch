@@ -80,14 +80,20 @@ Regole per il testo visibile all'utente:
 - Non inventare numeri RUI, sezioni, mandati, email, telefoni o indirizzi.
 - Se un dato extra non c'è, omettilo: non elencare i buchi della procedura.
 - Non raschiare il portale IVASS.
-- Italiano, concreto. Cita gli URL solo quando usi una fonte web.
+- Italiano, concreto.
 - Un soggetto alla volta.
+- Niente markdown (niente ** o elenchi con trattini): i dati vanno solo nei blocchi JSON.
 
-Alla fine della risposta, dopo il testo, aggiungi ESATTAMENTE un blocco:
+Rispondi SOLO con questi due blocchi, in quest'ordine:
 
+---scheda---
+{"sintesi":"una o due frasi","categorie":[{"id":"anagrafica|rete|sede|recapiti|societa|web|governance|altro","titolo":"etichetta breve","voci":[{"etichetta":"campo","valore":"dato","url":null}]}]}
+---
 ---fondamentali---
 {"email":{"stato":"gia_in_rui|trovata|non_trovata","valore":null,"url":null},"cellulare":{"stato":"gia_in_rui|trovata|non_trovata","valore":null,"url":null},"sede":{"stato":"gia_in_rui|trovata|non_trovata","valore":null,"url":null}}
----`;
+---
+
+Includi solo categorie con almeno una voce trovata. Non inventare. Non spiegare la strategia.`;
 
 export function chiaveKimi() {
   return (process.env.MOONSHOT_API_KEY || process.env.KIMI_API_KEY || '').trim();
@@ -182,19 +188,131 @@ function compattaScheda(s) {
   return { ...base, mancanti: valutaMancanti(base) };
 }
 
-function parseFondamentali(testo) {
-  const grezzo = String(testo || '');
-  const marca = '---fondamentali---';
-  const idx = grezzo.lastIndexOf(marca);
-  if (idx < 0) return { testo: grezzo.trim(), dalModello: null };
-  const dopo = grezzo.slice(idx + marca.length).replace(/^\s*|\s*---\s*$/g, '').trim();
-  let dalModello = null;
+function parseJsonLax(testo) {
+  const t = String(testo || '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+  if (!t) return null;
   try {
-    dalModello = JSON.parse(dopo);
+    return JSON.parse(t);
   } catch {
-    dalModello = null;
+    const inizio = t.indexOf('{');
+    const fine = t.lastIndexOf('}');
+    if (inizio < 0 || fine <= inizio) return null;
+    try {
+      return JSON.parse(t.slice(inizio, fine + 1));
+    } catch {
+      return null;
+    }
   }
-  return { testo: grezzo.slice(0, idx).trim(), dalModello };
+}
+
+export function parseBlocchi(testo) {
+  const grezzo = String(testo || '');
+  const trovati = {};
+  const re = /---([a-z]+)---\s*([\s\S]*?)(?=\n---[a-z]+---|\s*$)/gi;
+  let m;
+  while ((m = re.exec(grezzo))) {
+    trovati[m[1].toLowerCase()] = parseJsonLax(m[2]);
+  }
+  const primo = grezzo.search(/---[a-z]+---/i);
+  const testoLibero = (primo < 0 ? grezzo : grezzo.slice(0, primo))
+    .replace(/\*{1,2}/g, '')
+    .trim();
+  return { testo: testoLibero, blocchi: trovati };
+}
+
+function normalizzaVoce(v) {
+  if (!v || typeof v !== 'object') return null;
+  const etichetta = testoPieno(v.etichetta || v.label);
+  const valore = testoPieno(v.valore || v.value);
+  if (!etichetta || !valore) return null;
+  const url = testoPieno(v.url) || null;
+  return { etichetta, valore, url };
+}
+
+function normalizzaCategorie(grezzo) {
+  const lista = Array.isArray(grezzo) ? grezzo : grezzo?.categorie;
+  if (!Array.isArray(lista)) return [];
+  return lista.map((c) => {
+    if (!c || typeof c !== 'object') return null;
+    const voci = (Array.isArray(c.voci) ? c.voci : [])
+      .map(normalizzaVoce)
+      .filter(Boolean);
+    if (voci.length === 0) return null;
+    return {
+      id: testoPieno(c.id) || 'altro',
+      titolo: testoPieno(c.titolo) || 'Altro',
+      voci,
+    };
+  }).filter(Boolean);
+}
+
+export function categorieDaRegistro(scheda, fondamentali = {}) {
+  const cats = [];
+  const s = scheda?.soggetto;
+  if (s) {
+    const voci = [
+      { etichetta: 'Denominazione', valore: s.denominazione },
+      { etichetta: 'RUI', valore: s.numero_iscrizione_rui },
+      { etichetta: 'Sezione', valore: s.sezione },
+      s.data_iscrizione ? { etichetta: 'Iscrizione', valore: s.data_iscrizione } : null,
+      { etichetta: 'Stato', valore: s.inoperativo ? 'inoperativo' : 'attivo' },
+    ].map(normalizzaVoce).filter(Boolean);
+    if (voci.length) cats.push({ id: 'anagrafica', titolo: 'Anagrafica', voci });
+  }
+  const n = scheda?.numeri;
+  if (n) {
+    const voci = [
+      { etichetta: 'Intermediari', valore: String(n.intermediari ?? '') },
+      { etichetta: 'Collaborazioni', valore: String(n.collaborazioni ?? '') },
+      { etichetta: 'Mandati', valore: String(n.mandati ?? '') },
+      { etichetta: 'Sedi', valore: String(n.sedi ?? '') },
+    ].map(normalizzaVoce).filter(Boolean);
+    if (voci.length) cats.push({ id: 'rete', titolo: 'Rete', voci });
+  }
+  const sedi = (scheda?.sedi || [])
+    .map((x) => [x.indirizzo_sede, x.cap_sede, x.comune_sede, x.provincia_sede].filter(Boolean).join(', '))
+    .filter(Boolean);
+  if (sedi.length) {
+    cats.push({
+      id: 'sede',
+      titolo: 'Sede',
+      voci: sedi.map((valore, i) => ({ etichetta: sedi.length > 1 ? `Sede ${i + 1}` : 'Indirizzo', valore })),
+    });
+  } else if (fondamentali.sede?.valore) {
+    cats.push({
+      id: 'sede',
+      titolo: 'Sede',
+      voci: [{ etichetta: 'Indirizzo', valore: fondamentali.sede.valore, url: fondamentali.sede.url || null }],
+    });
+  }
+  const recapiti = [];
+  for (const c of scheda?.contatti || []) {
+    const v = normalizzaVoce({ etichetta: c.tipo, valore: c.valore });
+    if (v) recapiti.push(v);
+  }
+  for (const [id, etichetta] of [['email', 'Email'], ['cellulare', 'Cellulare']]) {
+    const f = fondamentali[id];
+    if (f?.valore && !recapiti.some((r) => r.valore === f.valore)) {
+      recapiti.push({ etichetta, valore: f.valore, url: f.url || null });
+    }
+  }
+  if (recapiti.length) cats.push({ id: 'recapiti', titolo: 'Recapiti', voci: recapiti });
+  const siti = (scheda?.siti_internet || []).filter(Boolean);
+  if (siti.length) {
+    cats.push({
+      id: 'web',
+      titolo: 'Web',
+      voci: siti.map((url) => ({ etichetta: 'Sito', valore: url, url })),
+    });
+  }
+  const cariche = (scheda?.cariche || [])
+    .map((c) => normalizzaVoce({
+      etichetta: c.qualifica || 'Carica',
+      valore: [c.persona, c.societa].filter(Boolean).join(' · '),
+    }))
+    .filter(Boolean);
+  if (cariche.length) cats.push({ id: 'governance', titolo: 'Governance', voci: cariche.slice(0, 12) });
+  return cats;
 }
 
 function fondiFondamentali(copertura, dalModello) {
@@ -382,11 +500,12 @@ export async function approfondisciConKimi(client, corpo) {
     da_cercare: [...FONDAMENTALI],
   };
 
+  let schedaNota = null;
   const ruiNoto = estraiRui(risultato);
   if (ruiNoto) {
     try {
-      const gia = compattaScheda(await scheda(client, ruiNoto, { geocodifica: false }));
-      copertura = gia.mancanti;
+      schedaNota = compattaScheda(await scheda(client, ruiNoto, { geocodifica: false }));
+      copertura = schedaNota.mancanti;
       ruiUsato = 1;
       passi.push({ origine: 'rui', strumento: 'scheda_rui', dettaglio: ruiNoto });
     } catch {
@@ -427,13 +546,19 @@ export async function approfondisciConKimi(client, corpo) {
     const chiamate = message.tool_calls || [];
     if (chiamate.length === 0) {
       const grezzo = String(message.content || '').trim() || 'Nessun approfondimento.';
-      const { testo, dalModello } = parseFondamentali(grezzo);
+      const { testo, blocchi } = parseBlocchi(grezzo);
+      const fondamentali = fondiFondamentali(copertura, blocchi.fondamentali);
+      const daModello = normalizzaCategorie(blocchi.scheda);
+      const categorie = daModello.length ? daModello : categorieDaRegistro(schedaNota, fondamentali);
+      const sintesi = testoPieno(blocchi.scheda?.sintesi) || testo;
       return {
         domanda,
         modello: MODELLO,
-        risposta: testo,
+        sintesi,
+        categorie,
+        risposta: sintesi,
         passi,
-        fondamentali: fondiFondamentali(copertura, dalModello),
+        fondamentali,
         da_cercare: copertura.da_cercare,
       };
     }
@@ -452,6 +577,7 @@ export async function approfondisciConKimi(client, corpo) {
         try {
           const outRui = await eseguiRui(client, nome, args);
           if (outRui?.mancanti) copertura = outRui.mancanti;
+          if (nome === 'scheda_rui' && outRui?.soggetto) schedaNota = outRui;
           contenuto = jsonBreve(outRui);
         } catch (err) {
           contenuto = jsonBreve({ errore: err.message || 'errore RUI' });
