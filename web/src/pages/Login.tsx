@@ -1,17 +1,20 @@
 import { useState, type FormEvent } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { Lock, Shield } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { Button, Input } from "@/components/ui";
 
 export function LoginPage() {
   const { email, login } = useAuth();
+  const [params] = useSearchParams();
+  const next = params.get("next") || "/app";
+  const destinazione = next.startsWith("/app") ? next : "/app";
   const [indirizzo, setIndirizzo] = useState("");
   const [password, setPassword] = useState("");
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
 
-  if (email) return <Navigate to="/app" replace />;
+  if (email) return <Navigate to={destinazione} replace />;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -73,6 +76,11 @@ export function LoginPage() {
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
           Accesso solo per operatori autorizzati. Nessuna registrazione pubblica.
+        </p>
+        <p className="mt-3 text-center text-xs">
+          <Link to="/" className="font-semibold text-primary hover:underline">
+            Torna a RUI Search
+          </Link>
         </p>
       </div>
     </div>

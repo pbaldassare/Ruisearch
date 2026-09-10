@@ -1,6 +1,7 @@
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { DashboardShell } from "@/components/DashboardShell";
+import { LandingPage } from "@/pages/Landing";
 import { LoginPage } from "@/pages/Login";
 import { OverviewPage } from "@/pages/Overview";
 import {
@@ -28,6 +29,7 @@ function RichiedeAccesso() {
 export function App() {
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/app" element={<RichiedeAccesso />}>
         <Route index element={<OverviewPage />} />
@@ -41,7 +43,7 @@ export function App() {
         <Route path="documentazione" element={<DocumentazionePage />} />
         <Route path="aggiornamento" element={<AggiornamentoPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/login" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
