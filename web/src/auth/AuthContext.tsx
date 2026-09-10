@@ -1,16 +1,25 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { postJson } from "@/api";
 
-const STORAGE_KEY = "rui_session_v2";
+const STORAGE_KEY = "rui_session_v3";
+
+export type ClienteSessione = {
+  id: number;
+  rui: string;
+  denominazione: string;
+  sezione: string | null;
+};
 
 type Sessione = {
   email: string;
-  ruolo: "admin";
+  ruolo: "admin" | "cliente";
+  cliente?: ClienteSessione;
 };
 
 type AuthContextValue = {
   email: string | null;
-  ruolo: "admin" | null;
+  ruolo: "admin" | "cliente" | null;
+  cliente: ClienteSessione | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 };
@@ -22,7 +31,7 @@ function leggiSessione(): Sessione | null {
     const grezzo = sessionStorage.getItem(STORAGE_KEY);
     if (!grezzo) return null;
     const parsed = JSON.parse(grezzo) as Sessione;
-    if (!parsed?.email || parsed.ruolo !== "admin") return null;
+    if (!parsed?.email || (parsed.ruolo !== "admin" && parsed.ruolo !== "cliente")) return null;
     return parsed;
   } catch {
     return null;
@@ -36,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       email: sessione?.email ?? null,
       ruolo: sessione?.ruolo ?? null,
+      cliente: sessione?.cliente ?? null,
       async login(indirizzo, password) {
         const esito = await postJson<Sessione>("/api/auth/login", {
           email: indirizzo,

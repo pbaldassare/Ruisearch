@@ -5,10 +5,13 @@ import { useAuth } from "@/auth/AuthContext";
 import { Button, Input } from "@/components/ui";
 
 export function LoginPage() {
-  const { email, login } = useAuth();
+  const { email, ruolo, login } = useAuth();
   const [params] = useSearchParams();
-  const next = params.get("next") || "/app";
-  const destinazione = next.startsWith("/app") ? next : "/app";
+  const next = params.get("next") || "";
+  const destinazione =
+    ruolo === "cliente"
+      ? next.startsWith("/cliente") ? next : "/cliente"
+      : next.startsWith("/app") ? next : "/app";
   const [indirizzo, setIndirizzo] = useState("");
   const [password, setPassword] = useState("");
   const [errore, setErrore] = useState<string | null>(null);
@@ -38,7 +41,7 @@ export function LoginPage() {
           </div>
           <h1 className="text-3xl font-bold">Ruisearch</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Accesso amministratore all'area riservata
+            Accesso all'area riservata
           </p>
         </div>
 

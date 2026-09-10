@@ -3,7 +3,13 @@
 // Dashboard: /overview …  Esterni: /v1/… con X-API-Key.
 
 import http from 'node:http';
-import { verificaAdmin } from '../src/auth-login.js';
+import { verificaAccesso } from '../src/auth-login.js';
+import {
+  controlloRuiCliente,
+  estrattoCliente,
+  fidelizzazioneCliente,
+  opportunityCliente,
+} from '../src/cliente.js';
 import { closePool, withClient } from '../src/db.js';
 import { interpretaDomanda } from '../src/domanda.js';
 import { approfondisciConKimi, kimiPronta } from '../src/kimi-approfondisci.js';
@@ -113,6 +119,10 @@ async function esegui(path, q, client, req) {
   if (path === '/dimensioni' || path === '/v1/dimensioni') {
     return { dimensioni: DIMENSIONI, esempi: ESEMPI_DOMANDA };
   }
+  if (path === '/cliente/estratto') return estrattoCliente(client, q.rui);
+  if (path === '/cliente/fidelizzazione') return fidelizzazioneCliente(client, q.rui);
+  if (path === '/cliente/controllo') return controlloRuiCliente(client, q.rui);
+  if (path === '/cliente/opportunity') return opportunityCliente(client, q.rui);
   const errore = new Error('non trovato');
   errore.statusCode = 404;
   throw errore;
@@ -135,7 +145,8 @@ async function gestisci(req, res) {
   }
   if (path === '/auth/login' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    invia(res, 200, verificaAdmin(corpo.email, corpo.password));
+    const esito = await withClient((client) => verificaAccesso(client, corpo.email, corpo.password));
+    invia(res, 200, esito);
     return;
   }
   if (path === '/query/ai' && req.method === 'POST') {

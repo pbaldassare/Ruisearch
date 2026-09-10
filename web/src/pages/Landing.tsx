@@ -83,8 +83,8 @@ const FAQ = [
 ];
 
 export function LandingPage() {
-  const { email } = useAuth();
-  const riservata = email ? "/app" : "/login";
+  const { email, ruolo } = useAuth();
+  const riservata = !email ? "/login" : ruolo === "cliente" ? "/cliente" : "/app";
 
   return (
     <div className="min-h-[100dvh] bg-gradient-to-b from-[hsl(40_40%_95%)] to-[hsl(40_34%_90%)]">

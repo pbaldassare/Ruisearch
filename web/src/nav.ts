@@ -4,8 +4,11 @@ import {
   Building2,
   GitBranch,
   Handshake,
+  Heart,
+  Lightbulb,
   MessageSquare,
   RefreshCw,
+  ShieldCheck,
   UserCog,
   Users,
   type LucideIcon,
@@ -82,5 +85,43 @@ export const VOCI: VoceMenu[] = [
     path: "/app/aggiornamento",
     icon: RefreshCw,
     descrizione: "L'export IVASS si ricarica solo a richiesta, mai in automatico.",
+  },
+];
+
+export const VOCI_CLIENTE: VoceMenu[] = [
+  {
+    id: "estratto",
+    label: "Estratto",
+    path: "/cliente",
+    icon: BarChart3,
+    descrizione: "La tua iscrizione e i numeri della rete A/B/E.",
+  },
+  {
+    id: "intermediari",
+    label: "Intermediari",
+    path: "/cliente/intermediari",
+    icon: Users,
+    descrizione: "Broker, collaboratori e intermediari collegati a questa iscrizione.",
+  },
+  {
+    id: "fidelizzazione",
+    label: "Fidelizzazione",
+    path: "/cliente/fidelizzazione",
+    icon: Heart,
+    descrizione: "Stato della relazione con la rete. Struttura iniziale, da calibrare.",
+  },
+  {
+    id: "controllo",
+    label: "Controllo RUI interno",
+    path: "/cliente/controllo-rui",
+    icon: ShieldCheck,
+    descrizione: "Controlli sull'estratto: inoperativi, sedi, mandati, qualifiche.",
+  },
+  {
+    id: "opportunity",
+    label: "Opportunity",
+    path: "/cliente/opportunity",
+    icon: Lightbulb,
+    descrizione: "Aree di sviluppo sulla rete. Le regole si affineranno dopo.",
   },
 ];
