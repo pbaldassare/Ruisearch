@@ -94,14 +94,14 @@ export const VOCI_CLIENTE: VoceMenu[] = [
     label: "Estratto",
     path: "/cliente",
     icon: BarChart3,
-    descrizione: "La tua iscrizione e i numeri della rete A/B/E.",
+    descrizione: "La tua iscrizione e i collaboratori A/B/E collegati direttamente nel RUI.",
   },
   {
     id: "intermediari",
     label: "Intermediari",
     path: "/cliente/intermediari",
     icon: Users,
-    descrizione: "Broker, collaboratori e intermediari collegati a questa iscrizione.",
+    descrizione: "Collaboratori A/B/E collegati direttamente a questa iscrizione, I e II livello.",
   },
   {
     id: "fidelizzazione",

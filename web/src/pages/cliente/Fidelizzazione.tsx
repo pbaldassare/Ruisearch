@@ -214,7 +214,7 @@ export function FidelizzazionePage() {
       <MessaggioStato caricamento={caricamento} errore={errore} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card>
-          <p className="text-sm text-muted-foreground">In rete</p>
+          <p className="text-sm text-muted-foreground">Collaboratori diretti</p>
           <p className="mt-1 font-display text-3xl">{data ? formatNumero(data.sintesi.in_rete) : "—"}</p>
         </Card>
         <Card>

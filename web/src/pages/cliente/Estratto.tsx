@@ -40,8 +40,8 @@ type Estratto = {
 };
 
 const KPI = [
-  { label: "Intermediari in rete", chiave: "rete" as const, icon: Users },
-  { label: "Collaborazioni", chiave: "collaborazioni" as const, icon: GitBranch },
+  { label: "Collaboratori diretti", chiave: "rete" as const, icon: Users },
+  { label: "Rapporti in registro", chiave: "collaborazioni" as const, icon: GitBranch },
   { label: "Mandati", chiave: "mandati" as const, icon: Handshake },
   { label: "Sedi", chiave: "sedi" as const, icon: Building2 },
 ];
@@ -90,6 +90,10 @@ export function EstrattoClientePage() {
           );
         })}
       </div>
+      <p className="text-sm text-muted-foreground">
+        I collaboratori diretti sono gli iscritti A/B/E collegati a questa iscrizione nel RUI, I e II livello, senza doppioni.
+        Non include la rete di altre società del gruppo (per esempio Consulbrokers Digital) né sezioni C, D, U.
+      </p>
       {data?.sedi?.length ? (
         <Card>
           <h3 className="mb-3 text-lg font-bold">Sedi</h3>
