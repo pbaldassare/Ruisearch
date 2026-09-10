@@ -254,7 +254,7 @@ function ApprofondimentoAi({
         <div>
           <h3 className="text-lg font-bold">Approfondimento</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Approfondisci ulteriormente la ricerca con l'utilizzo di un'AI avanzata.
+            Non hai trovato quello che cerchi? Approfondisci ulteriormente la ricerca con l'utilizzo di un'AI avanzata.
           </p>
         </div>
         <Button type="button" onClick={() => void avvia()} disabled={inCorso}>
