@@ -28,12 +28,37 @@ type RispostaDomanda = {
 
 type PassoAi = { origine: "rui" | "web"; strumento: string; dettaglio: string };
 
+type Fondamentale = {
+  stato: "gia_in_rui" | "trovata" | "non_trovata";
+  valore: string | null;
+  url?: string | null;
+  origine?: "rui" | "web" | null;
+};
+
 type RispostaAi = {
   domanda: string;
   modello?: string;
   risposta: string;
   passi: PassoAi[];
+  fondamentali?: {
+    email?: Fondamentale;
+    cellulare?: Fondamentale;
+    sede?: Fondamentale;
+  };
+  da_cercare?: string[];
 };
+
+const ETICHETTE_FONDAMENTALI: Record<string, string> = {
+  email: "Email",
+  cellulare: "Cellulare",
+  sede: "Sede / residenza",
+};
+
+function etichettaStato(stato: Fondamentale["stato"]) {
+  if (stato === "gia_in_rui") return "già in registro";
+  if (stato === "trovata") return "trovata sul web";
+  return "non trovata";
+}
 
 const ESEMPI = [
   "quanti intermediari ha consulbrokers",
@@ -225,7 +250,8 @@ function ApprofondimentoAi({
         <div>
           <h3 className="text-lg font-bold">Approfondimento AI</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Dopo lo script, Kimi verifica prima sul RUI e poi sul web ciò che manca.
+            Kimi verifica il RUI e cerca sul web solo se mancano email, cellulare o sede/residenza.
+            Poi può arricchire con altri dati.
           </p>
         </div>
         <Button type="button" onClick={() => void avvia()} disabled={inCorso}>
@@ -242,6 +268,33 @@ function ApprofondimentoAi({
       {errore ? <p className="mt-3 text-sm text-destructive">{errore}</p> : null}
       {ai ? (
         <div className="mt-4 space-y-3">
+          {ai.fondamentali ? (
+            <ul className="grid gap-2 sm:grid-cols-3">
+              {(["email", "cellulare", "sede"] as const).map((id) => {
+                const f = ai.fondamentali?.[id];
+                if (!f) return null;
+                return (
+                  <li key={id} className="rounded-2xl bg-secondary/70 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase text-muted-foreground">
+                      {ETICHETTE_FONDAMENTALI[id]}
+                    </p>
+                    <p className="text-sm font-semibold">{etichettaStato(f.stato)}</p>
+                    {f.valore ? <p className="mt-1 break-all text-xs">{f.valore}</p> : null}
+                    {f.url ? (
+                      <a
+                        className="mt-1 block truncate text-xs text-primary hover:underline"
+                        href={f.url}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        fonte
+                      </a>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
           {ai.passi.length > 0 ? (
             <ul className="flex flex-wrap gap-2">
               {ai.passi.map((p, i) => (

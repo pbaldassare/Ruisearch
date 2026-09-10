@@ -7,8 +7,10 @@ const BASE = (process.env.KIMI_BASE_URL || process.env.MOONSHOT_BASE_URL || 'htt
   .trim()
   .replace(/\/$/, '');
 const MODELLO = (process.env.KIMI_MODEL || 'kimi-k2.5').trim();
-const MAX_GIRI = 8;
-const MAX_WEB = 3;
+const MAX_GIRI = 10;
+const MAX_WEB = 5;
+
+const FONDAMENTALI = ['email', 'cellulare', 'sede'];
 
 const STRUMENTI_RUI = [
   {
@@ -60,17 +62,31 @@ const STRUMENTI_RUI = [
 const SYSTEM_PROMPT = `Sei Kimi, usato da RUI Search per approfondire una domanda già eseguita da uno script SQL (niente AI).
 
 Ordine obbligatorio:
-1. Usa prima i tool del registro (cerca_rui, scheda_rui, rete_rui) per verificare e completare ciò che lo script ha trovato o ha perso.
-2. Solo dopo almeno un tool RUI, usa web_search (e fetch se disponibile) per ciò che il registro non contiene: sito, recapiti extra, LinkedIn, news, gruppo societario, P.IVA, incarichi fuori dal RUI.
+1. Usa prima i tool del registro (cerca_rui, scheda_rui, rete_rui).
+2. Poi vai sul web SOLO per i campi fondamentali che il registro (e i contatti già salvati) non hanno.
+
+Campi fondamentali — cerca sul web se e solo se risultano mancanti:
+- email
+- cellulare (numero mobile, non un fisso da solo)
+- sede / residenza lavorativa (indirizzo operativo o di lavoro)
+
+Se un fondamentale è già presente, NON cercarlo sul web. Segnalo solo come già in registro.
+Dopo i fondamentali mancanti, puoi arricchire con altro di utile (sito, LinkedIn, P.IVA, news, gruppo), senza inventare.
 
 Regole:
-- Non inventare numeri RUI, sezioni, mandati o collaborazioni.
-- Se il RUI non ha un dato, dillo esplicitamente. Il web non sostituisce il registro.
+- Non inventare numeri RUI, sezioni, mandati, email, telefoni o indirizzi.
+- Se non lo trovi, scrivi «non trovato». Il web non sostituisce il registro.
 - Non raschiare il portale IVASS.
-- Rispondi in italiano, concreto.
-- Struttura la risposta in due blocchi: «Nel registro» e «Sul web».
-- Quando usi il web, cita gli URL.
-- Lavora su un soggetto alla volta, quello della domanda.`;
+- Italiano, concreto.
+- Struttura: «Nel registro», «Fondamentali», «Sul web» (altri dati).
+- Cita gli URL delle fonti web.
+- Un soggetto alla volta.
+
+Alla fine della risposta, dopo il testo, aggiungi ESATTAMENTE un blocco:
+
+---fondamentali---
+{"email":{"stato":"gia_in_rui|trovata|non_trovata","valore":null,"url":null},"cellulare":{"stato":"gia_in_rui|trovata|non_trovata","valore":null,"url":null},"sede":{"stato":"gia_in_rui|trovata|non_trovata","valore":null,"url":null}}
+---`;
 
 export function chiaveKimi() {
   return (process.env.MOONSHOT_API_KEY || process.env.KIMI_API_KEY || '').trim();
@@ -103,8 +119,51 @@ function prendiArgomenti(grezzo) {
   }
 }
 
-function compattaScheda(s) {
+function testoPieno(valore) {
+  return String(valore || '').trim();
+}
+
+function eCellulare(valore) {
+  const n = testoPieno(valore).replace(/\D/g, '');
+  if (/^393\d{8,10}$/.test(n)) return true;
+  if (/^3\d{8,10}$/.test(n)) return true;
+  return false;
+}
+
+export function valutaMancanti(schedaSoggetto) {
+  const contatti = schedaSoggetto?.contatti || [];
+  const sedi = schedaSoggetto?.sedi || [];
+  const email = contatti
+    .filter((c) => (c.tipo === 'email' || c.tipo === 'pec') && testoPieno(c.valore).includes('@'))
+    .map((c) => testoPieno(c.valore));
+  const cellulari = contatti
+    .filter((c) => (c.tipo === 'telefono' || c.tipo === 'altro') && eCellulare(c.valore))
+    .map((c) => testoPieno(c.valore));
+  const sediTesto = sedi
+    .map((s) => [s.indirizzo_sede, s.cap_sede, s.comune_sede, s.provincia_sede].filter(Boolean).join(', '))
+    .map((t) => t.trim())
+    .filter(Boolean);
+  const coperti = {
+    email: { presente: email.length > 0, valori: email },
+    cellulare: { presente: cellulari.length > 0, valori: cellulari },
+    sede: { presente: sediTesto.length > 0, valori: sediTesto },
+  };
   return {
+    ...coperti,
+    da_cercare: FONDAMENTALI.filter((id) => !coperti[id].presente),
+  };
+}
+
+function estraiRui(risultato) {
+  return testoPieno(
+    risultato?.scelto?.numero_iscrizione_rui
+    || risultato?.risultati?.[0]?.numero_iscrizione_rui
+    || '',
+  );
+}
+
+function compattaScheda(s) {
+  const base = {
     soggetto: s.soggetto,
     profilo: s.profilo,
     numeri: s.numeri,
@@ -119,6 +178,47 @@ function compattaScheda(s) {
       collaboratori: (s.rete?.collaboratori || []).slice(0, 15),
     },
   };
+  return { ...base, mancanti: valutaMancanti(base) };
+}
+
+function parseFondamentali(testo) {
+  const grezzo = String(testo || '');
+  const marca = '---fondamentali---';
+  const idx = grezzo.lastIndexOf(marca);
+  if (idx < 0) return { testo: grezzo.trim(), dalModello: null };
+  const dopo = grezzo.slice(idx + marca.length).replace(/^\s*|\s*---\s*$/g, '').trim();
+  let dalModello = null;
+  try {
+    dalModello = JSON.parse(dopo);
+  } catch {
+    dalModello = null;
+  }
+  return { testo: grezzo.slice(0, idx).trim(), dalModello };
+}
+
+function fondiFondamentali(copertura, dalModello) {
+  const out = {};
+  for (const id of FONDAMENTALI) {
+    const gia = copertura?.[id];
+    const modello = dalModello?.[id] || {};
+    if (gia?.presente) {
+      out[id] = {
+        stato: 'gia_in_rui',
+        valore: gia.valori[0] || null,
+        url: null,
+        origine: 'rui',
+      };
+      continue;
+    }
+    const stato = ['trovata', 'non_trovata'].includes(modello.stato) ? modello.stato : 'non_trovata';
+    out[id] = {
+      stato,
+      valore: stato === 'trovata' ? (modello.valore || null) : null,
+      url: modello.url || null,
+      origine: stato === 'trovata' ? 'web' : null,
+    };
+  }
+  return out;
 }
 
 function compattaRete(r) {
@@ -224,7 +324,13 @@ async function eseguiRui(client, nome, args) {
   if (nome === 'scheda_rui') {
     const rui = String(args.rui || '').trim();
     if (!rui) return { errore: 'manca rui' };
-    return compattaScheda(await scheda(client, rui, { geocodifica: false }));
+    const out = compattaScheda(await scheda(client, rui, { geocodifica: false }));
+    return {
+      ...out,
+      istruzione: out.mancanti.da_cercare.length
+        ? `Cerca sul web SOLO questi fondamentali mancanti: ${out.mancanti.da_cercare.join(', ')}.`
+        : 'Email, cellulare e sede sono già in registro: non cercarli sul web. Puoi solo arricchire altro.',
+    };
   }
   if (nome === 'rete_rui') {
     const rui = String(args.rui || '').trim();
@@ -264,6 +370,37 @@ export async function approfondisciConKimi(client, corpo) {
 
   const formule = await caricaFormule();
   const tools = [...STRUMENTI_RUI, ...formule.tools];
+
+  const passi = [];
+  let ruiUsato = 0;
+  let webUsato = 0;
+  let copertura = {
+    email: { presente: false, valori: [] },
+    cellulare: { presente: false, valori: [] },
+    sede: { presente: false, valori: [] },
+    da_cercare: [...FONDAMENTALI],
+  };
+
+  const ruiNoto = estraiRui(risultato);
+  if (ruiNoto) {
+    try {
+      const gia = compattaScheda(await scheda(client, ruiNoto, { geocodifica: false }));
+      copertura = gia.mancanti;
+      ruiUsato = 1;
+      passi.push({ origine: 'rui', strumento: 'scheda_rui', dettaglio: ruiNoto });
+    } catch {
+      // Lo script ha un RUI ma la scheda può fallire: Kimi riproverà con i tool.
+    }
+  }
+
+  const istruzioneBuchi = copertura.da_cercare.length
+    ? `Fondamentali MANCANTI — cercali per forza sul web: ${copertura.da_cercare.join(', ')}.`
+    : 'Email, cellulare e sede/residenza sono già presenti: non cercarli sul web.';
+  const giaPresenti = FONDAMENTALI
+    .filter((id) => copertura[id].presente)
+    .map((id) => `${id}: ${copertura[id].valori[0]}`)
+    .join(' · ');
+
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     {
@@ -272,14 +409,13 @@ export async function approfondisciConKimi(client, corpo) {
         `Domanda originale: ${domanda}`,
         'Risultato dello script (non AI):',
         jsonBreve(risultato, 8000),
-        'Verifica e completa. Prima il RUI, poi il web solo per i buchi.',
+        ruiNoto ? `Soggetto RUI: ${ruiNoto}` : 'Soggetto da risolvere con cerca_rui.',
+        giaPresenti ? `Già in registro/contatti (NON cercare sul web): ${giaPresenti}` : 'Nessun fondamentale già in registro.',
+        istruzioneBuchi,
+        'Poi, se serve, arricchisci con altri dati interessanti.',
       ].join('\n\n'),
     },
   ];
-
-  const passi = [];
-  let ruiUsato = 0;
-  let webUsato = 0;
   const corpoChat = { model: MODELLO, messages, tools };
   if (/k3/i.test(MODELLO)) corpoChat.reasoning_effort = 'low';
 
@@ -289,11 +425,15 @@ export async function approfondisciConKimi(client, corpo) {
     if (!message) throw erroreHttp(502, 'Kimi non ha restituito una risposta.');
     const chiamate = message.tool_calls || [];
     if (chiamate.length === 0) {
+      const grezzo = String(message.content || '').trim() || 'Nessun approfondimento.';
+      const { testo, dalModello } = parseFondamentali(grezzo);
       return {
         domanda,
         modello: MODELLO,
-        risposta: String(message.content || '').trim() || 'Nessun approfondimento.',
+        risposta: testo,
         passi,
+        fondamentali: fondiFondamentali(copertura, dalModello),
+        da_cercare: copertura.da_cercare,
       };
     }
 
@@ -309,7 +449,9 @@ export async function approfondisciConKimi(client, corpo) {
         ruiUsato += 1;
         passi.push({ origine: 'rui', strumento: nome, dettaglio: String(dettaglio) });
         try {
-          contenuto = jsonBreve(await eseguiRui(client, nome, args));
+          const outRui = await eseguiRui(client, nome, args);
+          if (outRui?.mancanti) copertura = outRui.mancanti;
+          contenuto = jsonBreve(outRui);
         } catch (err) {
           contenuto = jsonBreve({ errore: err.message || 'errore RUI' });
         }
