@@ -1,5 +1,17 @@
 import { useEffect, useState } from "react";
-import { getJson } from "@/api";
+import { ApiError, getJson } from "@/api";
+
+async function getJsonConRiprova<T>(path: string): Promise<T> {
+  try {
+    return await getJson<T>(path);
+  } catch (err) {
+    if (err instanceof ApiError && err.status >= 500) {
+      await new Promise((ok) => window.setTimeout(ok, 500));
+      return getJson<T>(path);
+    }
+    throw err;
+  }
+}
 
 export function useApi<T>(path: string | null) {
   const [data, setData] = useState<T | null>(null);
@@ -16,7 +28,7 @@ export function useApi<T>(path: string | null) {
     let stop = false;
     setCaricamento(true);
     setErrore(null);
-    getJson<T>(path)
+    getJsonConRiprova<T>(path)
       .then((risposta) => {
         if (!stop) setData(risposta);
       })

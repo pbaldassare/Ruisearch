@@ -228,6 +228,7 @@ async function gestisci(req, res) {
 const server = http.createServer((req, res) => {
   gestisci(req, res).catch((errore) => {
     const status = errore.statusCode || (errore instanceof SyntaxError ? 400 : 500);
+    if (status >= 500) console.error(req.method, req.url, errore);
     invia(res, status, { errore: errore.message || 'errore interno' });
   });
 });

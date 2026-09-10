@@ -163,10 +163,13 @@ export async function fidelizzazioneCliente(client, rui) {
     };
   });
 
-  const cliente = await clienteDaRui(client, numero);
-  const sorveglianza = cliente
-    ? await sincronizzaSorveglianza(client, cliente)
-    : { sorvegliati: [], alert: [] };
+  let sorveglianza = { sorvegliati: [], alert: [] };
+  try {
+    const cliente = await clienteDaRui(client, numero);
+    if (cliente) sorveglianza = await sincronizzaSorveglianza(client, cliente);
+  } catch (errore) {
+    console.error('sorveglianza fidelizzazione', errore);
+  }
 
   return {
     sintesi: {
@@ -208,16 +211,9 @@ async function caricaAltriPrincipali(client, ruis, ruiCliente) {
   return aPezzi(ruis, async (pezzo) => {
     const { rows } = await client.query(
       `
-      with anag as (
-        select distinct on (numero_iscrizione_rui)
-          numero_iscrizione_rui, denominazione, sezione
-        from intermediari
-        where sezione = any($1::text[])
-        order by numero_iscrizione_rui, inoperativo, oss
-      )
       select distinct
         case
-          when c.num_iscr_collaboratori_i_liv = any($2::text[])
+          when c.num_iscr_collaboratori_i_liv = any($1::text[])
             then c.num_iscr_collaboratori_i_liv
           else c.num_iscr_collaboratori_ii_liv
         end as rui_mio,
@@ -225,14 +221,16 @@ async function caricaAltriPrincipali(client, ruis, ruiCliente) {
         i.denominazione,
         i.sezione
       from collaboratori c
-      join anag i on i.numero_iscrizione_rui = c.num_iscr_intermediario
+      join intermediari i
+        on i.numero_iscrizione_rui = c.num_iscr_intermediario
+       and i.sezione = any($2::text[])
       where (
-          c.num_iscr_collaboratori_i_liv = any($2::text[])
-          or c.num_iscr_collaboratori_ii_liv = any($2::text[])
+          c.num_iscr_collaboratori_i_liv = any($1::text[])
+          or c.num_iscr_collaboratori_ii_liv = any($1::text[])
         )
         and c.num_iscr_intermediario <> $3
       `,
-      [SEZIONI_ATTIVE, pezzo, ruiCliente],
+      [pezzo, SEZIONI_ATTIVE, ruiCliente],
     );
     return rows;
   });
@@ -241,30 +239,28 @@ async function caricaAltriPrincipali(client, ruis, ruiCliente) {
 async function collaboratoriSottoBroker(client, ruiBroker) {
   const { rows } = await client.query(
     `
-    with anag as (
-      select distinct on (numero_iscrizione_rui)
-        numero_iscrizione_rui, denominazione, sezione, inoperativo
-      from intermediari
-      where sezione = any($1::text[])
-      order by numero_iscrizione_rui, inoperativo, oss
-    ),
-    sotto as (
+    with sotto as (
       select c.num_iscr_collaboratori_i_liv as rui
       from collaboratori c
-      where c.num_iscr_intermediario = $2
+      where c.num_iscr_intermediario = $1
         and c.num_iscr_collaboratori_i_liv is not null
       union
       select c.num_iscr_collaboratori_ii_liv
       from collaboratori c
-      where c.num_iscr_intermediario = $2
+      where c.num_iscr_intermediario = $1
         and c.num_iscr_collaboratori_ii_liv is not null
     )
-    select a.numero_iscrizione_rui as rui, a.denominazione, a.sezione, a.inoperativo
+    select distinct on (i.numero_iscrizione_rui)
+      i.numero_iscrizione_rui as rui,
+      i.denominazione,
+      i.sezione,
+      i.inoperativo
     from sotto s
-    join anag a on a.numero_iscrizione_rui = s.rui
-    order by a.denominazione
+    join intermediari i on i.numero_iscrizione_rui = s.rui
+    where i.sezione = any($2::text[])
+    order by i.numero_iscrizione_rui, i.inoperativo, i.oss
     `,
-    [SEZIONI_ATTIVE, ruiBroker],
+    [ruiBroker, SEZIONI_ATTIVE],
   );
   return rows;
 }
@@ -296,50 +292,62 @@ async function sincronizzaSorveglianza(client, cliente) {
 
   const elenco = [];
   for (const broker of sorvegliati.rows) {
-    const attuali = await collaboratoriSottoBroker(client, broker.rui_broker);
-    const snapshot = await client.query(
-      `
-      select rui_sotto
-      from cliente_rete_snapshot
-      where cliente_id = $1 and rui_broker = $2
-      `,
-      [cliente.id, broker.rui_broker],
-    );
-    const noti = new Set(snapshot.rows.map((r) => r.rui_sotto));
-    const nuovi = attuali.filter((p) => !noti.has(p.rui));
-
-    for (const n of nuovi) {
-      await client.query(
+    try {
+      const attuali = await collaboratoriSottoBroker(client, broker.rui_broker);
+      const snapshot = await client.query(
         `
-        insert into cliente_alert (
-          cliente_id, rui_broker, broker_denominazione,
-          rui_nuovo, nuovo_denominazione, sezione
-        )
-        values ($1, $2, $3, $4, $5, $6)
-        on conflict (cliente_id, rui_broker, rui_nuovo) do nothing
+        select rui_sotto
+        from cliente_rete_snapshot
+        where cliente_id = $1 and rui_broker = $2
         `,
-        [
-          cliente.id,
-          broker.rui_broker,
-          broker.denominazione,
-          n.rui,
-          n.denominazione,
-          n.sezione,
-        ],
+        [cliente.id, broker.rui_broker],
       );
-    }
-    if (nuovi.length) {
-      await inserisciSnapshot(client, cliente.id, broker.rui_broker, nuovi.map((n) => n.rui));
-    }
+      const noti = new Set(snapshot.rows.map((r) => r.rui_sotto));
+      const nuovi = attuali.filter((p) => !noti.has(p.rui));
 
-    elenco.push({
-      id: broker.id,
-      rui_broker: broker.rui_broker,
-      denominazione: broker.denominazione,
-      sezione: broker.sezione,
-      in_rete: attuali.length,
-      creato_il: broker.creato_il,
-    });
+      for (const n of nuovi) {
+        await client.query(
+          `
+          insert into cliente_alert (
+            cliente_id, rui_broker, broker_denominazione,
+            rui_nuovo, nuovo_denominazione, sezione
+          )
+          values ($1, $2, $3, $4, $5, $6)
+          on conflict (cliente_id, rui_broker, rui_nuovo) do nothing
+          `,
+          [
+            cliente.id,
+            broker.rui_broker,
+            broker.denominazione,
+            n.rui,
+            n.denominazione,
+            n.sezione,
+          ],
+        );
+      }
+      if (nuovi.length) {
+        await inserisciSnapshot(client, cliente.id, broker.rui_broker, nuovi.map((n) => n.rui));
+      }
+
+      elenco.push({
+        id: broker.id,
+        rui_broker: broker.rui_broker,
+        denominazione: broker.denominazione,
+        sezione: broker.sezione,
+        in_rete: attuali.length,
+        creato_il: broker.creato_il,
+      });
+    } catch (errore) {
+      console.error(`sorveglianza ${broker.rui_broker}`, errore);
+      elenco.push({
+        id: broker.id,
+        rui_broker: broker.rui_broker,
+        denominazione: broker.denominazione,
+        sezione: broker.sezione,
+        in_rete: null,
+        creato_il: broker.creato_il,
+      });
+    }
   }
 
   const alert = await client.query(

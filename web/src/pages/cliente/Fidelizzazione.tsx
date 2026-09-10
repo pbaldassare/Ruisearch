@@ -220,19 +220,19 @@ export function FidelizzazionePage() {
         <Card>
           <p className="text-sm text-muted-foreground">Lavorano anche altrove</p>
           <p className="mt-1 font-display text-3xl">
-            {data ? formatNumero(data.sintesi.lavorano_altrove) : "—"}
+            {data ? formatNumero(data.sintesi?.lavorano_altrove) : "—"}
           </p>
         </Card>
         <Card>
           <p className="text-sm text-muted-foreground">Compagnie distinte</p>
           <p className="mt-1 font-display text-3xl">
-            {data ? formatNumero(data.sintesi.compagnie_distinte) : "—"}
+            {data ? formatNumero(data.sintesi?.compagnie_distinte) : "—"}
           </p>
         </Card>
         <Card>
           <p className="text-sm text-muted-foreground">Avvisi da leggere</p>
           <p className="mt-1 font-display text-3xl">
-            {data ? formatNumero(data.sintesi.alert_non_letti) : "—"}
+            {data ? formatNumero(data.sintesi?.alert_non_letti) : "—"}
           </p>
         </Card>
       </div>
@@ -269,12 +269,12 @@ export function FidelizzazionePage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Barre
           titolo="Compagnie con cui lavorano"
-          voci={data?.grafici.compagnie ?? []}
+          voci={data?.grafici?.compagnie ?? []}
           vuoto="Nessuna compagnia in registro sui mandati della rete o degli altri intermediari con cui lavorano."
         />
         <Barre
           titolo="Altri intermediari con cui lavorano"
-          voci={data?.grafici.principali ?? []}
+          voci={data?.grafici?.principali ?? []}
           vuoto="Nessun altro principale A/B/E: in registro la rete risulta solo sotto di te."
         />
       </div>
