@@ -57,17 +57,9 @@ export async function overview(client, { sezione } = {}) {
     select
       (select count(*)::bigint from intermediari
         where sezione = any($1::text[])) as intermediari,
-      (select count(*)::bigint from collaboratori c
-        where exists (
-          select 1 from intermediari p
-          where p.numero_iscrizione_rui = c.num_iscr_intermediario
-            and p.sezione = any($1::text[])
-        )
-        and exists (
-          select 1 from intermediari e
-          where e.numero_iscrizione_rui = c.num_iscr_collaboratori_i_liv
-            and e.sezione = any($1::text[])
-        )) as collaborazioni,
+      (select count(*)::bigint from rete_collegati r
+        where r.sezione_principale = any($1::text[])
+          and r.sezione_collegato = any($1::text[])) as collaborazioni,
       (select count(*)::bigint from sedi s
         where exists (
           select 1 from intermediari i
@@ -84,7 +76,10 @@ export async function overview(client, { sezione } = {}) {
     [sezioni],
   );
   const ultimo = await ultimoImport(client);
-  return { ...rows[0], ultimo_import: ultimo };
+  const rete = await client.query(
+    `select ricostruita_il, archi, soggetti from rete_stato where id = 1`,
+  );
+  return { ...rows[0], ultimo_import: ultimo, rete: rete.rows[0] || null };
 }
 
 export async function ultimoImport(client) {
@@ -208,53 +203,37 @@ export async function rete(client, rui, { sezione } = {}) {
   const principali = await client.query(
     `
     with ${anagCte()}
-    select distinct on (c.num_iscr_intermediario, trim(c.qualifica_rapporto), c.livello)
-      c.livello,
-      trim(c.qualifica_rapporto) as qualifica,
-      c.num_iscr_intermediario as rui_collegato,
+    select
+      r.livello,
+      r.qualifica,
+      r.principale as rui_collegato,
       i.denominazione,
       i.sezione,
       i.inoperativo
-    from collaboratori c
-    join anag i on i.numero_iscrizione_rui = c.num_iscr_intermediario
-    where c.num_iscr_collaboratori_i_liv = $2
-       or c.num_iscr_collaboratori_ii_liv = $2
-    order by c.num_iscr_intermediario, trim(c.qualifica_rapporto), c.livello, i.denominazione
+    from rete_collegati r
+    join anag i on i.numero_iscrizione_rui = r.principale
+    where r.collegato = $2
+      and r.sezione_principale = any($1::text[])
+    order by i.denominazione, r.principale
     `,
     [sezioni, numero],
   );
 
   const collaboratori = await client.query(
     `
-    with ${anagCte()},
-    collegati as (
-      select
-        c.livello,
-        trim(c.qualifica_rapporto) as qualifica,
-        c.num_iscr_collaboratori_i_liv as rui_collegato
-      from collaboratori c
-      where c.num_iscr_intermediario = $2
-        and c.livello = 'I'
-        and c.num_iscr_collaboratori_i_liv is not null
-      union all
-      select
-        c.livello,
-        trim(c.qualifica_rapporto) as qualifica,
-        c.num_iscr_collaboratori_ii_liv
-      from collaboratori c
-      where c.num_iscr_intermediario = $2
-        and c.num_iscr_collaboratori_ii_liv is not null
-    )
-    select distinct on (collegati.rui_collegato)
-      collegati.livello,
-      collegati.qualifica,
-      collegati.rui_collegato,
+    with ${anagCte()}
+    select
+      r.livello,
+      r.qualifica,
+      r.collegato as rui_collegato,
       i.denominazione,
       i.sezione,
       i.inoperativo
-    from collegati
-    join anag i on i.numero_iscrizione_rui = collegati.rui_collegato
-    order by collegati.rui_collegato, collegati.livello, collegati.qualifica, i.denominazione
+    from rete_collegati r
+    join anag i on i.numero_iscrizione_rui = r.collegato
+    where r.principale = $2
+      and r.sezione_collegato = any($1::text[])
+    order by i.denominazione, r.collegato
     `,
     [sezioni, numero],
   );
@@ -410,30 +389,14 @@ export async function numeriDi(client, rui) {
   const { rows } = await client.query(
     `
     select
-      (select count(distinct x.rui)::bigint from (
-          select c.num_iscr_collaboratori_i_liv as rui
-            from collaboratori c
-            join intermediari i on i.numero_iscrizione_rui = c.num_iscr_collaboratori_i_liv
-           where c.num_iscr_intermediario = $1
-             and c.livello = 'I'
-             and i.sezione = any($2::text[])
-          union
-          select c.num_iscr_collaboratori_ii_liv
-            from collaboratori c
-            join intermediari i on i.numero_iscrizione_rui = c.num_iscr_collaboratori_ii_liv
-           where c.num_iscr_intermediario = $1
-             and c.num_iscr_collaboratori_ii_liv is not null
-             and i.sezione = any($2::text[])
-        ) x) as intermediari,
-      (select count(*)::bigint
-         from collaboratori c
-         join intermediari i on i.numero_iscrizione_rui = c.num_iscr_collaboratori_i_liv
-        where c.num_iscr_intermediario = $1
-          and i.sezione = any($2::text[])) as collaborazioni,
+      coalesce(n.collaboratori, 0)::bigint as intermediari,
+      coalesce(n.rapporti, 0)::bigint as collaborazioni,
       (select count(*)::bigint from mandati where matricola = $1) as mandati,
       (select count(*)::bigint from sedi where numero_iscrizione_int = $1) as sedi
+    from (select $1::text as rui) q
+    left join rete_numeri n on n.rui = q.rui
     `,
-    [n, SEZIONI_ATTIVE],
+    [n],
   );
   return rows[0];
 }

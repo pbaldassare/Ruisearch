@@ -80,45 +80,29 @@ where numero_iscrizione_rui = $1
 order by tipo, valore;
 
 -- ---------------------------------------------------------------------------
--- Rete: archi in uscita (io sono il principale)
+-- Rete materializzata A/B/E (una persona unica per principale)
+-- Ricostruire: select * from ricostruisci_rete_collegati();
 -- ---------------------------------------------------------------------------
-select
-  c.livello,
-  trim(c.qualifica_rapporto) as qualifica,
-  c.num_iscr_collaboratori_i_liv as rui_collegato,
-  i.denominazione,
-  i.sezione
-from collaboratori c
-join intermediari i on i.numero_iscrizione_rui = c.num_iscr_collaboratori_i_liv
-where c.num_iscr_intermediario = $1
-order by i.denominazione;
+select livello, qualifica, collegato as rui_collegato, sezione_collegato
+from rete_collegati
+where principale = $1
+order by collegato;
 
--- Rete: archi in entrata (io sono collaboratore di qualcuno)
-select
-  c.livello,
-  trim(c.qualifica_rapporto) as qualifica,
-  c.num_iscr_intermediario as rui_collegato,
-  i.denominazione,
-  i.sezione
-from collaboratori c
-join intermediari i on i.numero_iscrizione_rui = c.num_iscr_intermediario
-where c.num_iscr_collaboratori_i_liv = $1
-   or c.num_iscr_collaboratori_ii_liv = $1
-order by i.denominazione;
+select livello, qualifica, principale as rui_collegato, sezione_principale
+from rete_collegati
+where collegato = $1
+order by principale;
 
--- Grafo 1-hop (nodi + archi) per un RUI
-with archi as (
-  select num_iscr_intermediario as da,
-         num_iscr_collaboratori_i_liv as a,
-         trim(qualifica_rapporto) as qualifica,
-         livello
-  from collaboratori
-  where num_iscr_intermediario = $1
-     or num_iscr_collaboratori_i_liv = $1
-     or num_iscr_collaboratori_ii_liv = $1
-)
-select da, a, qualifica, livello from archi
-where da is not null and a is not null;
+select collaboratori, principali, rapporti
+from rete_numeri
+where rui = $1;
+
+select da, a, qualifica, livello
+from (
+  select principale as da, collegato as a, qualifica, livello
+  from rete_collegati
+  where principale = $1 or collegato = $1
+) archi;
 
 -- ---------------------------------------------------------------------------
 -- Sedi / Mandati / Cariche (elenchi)

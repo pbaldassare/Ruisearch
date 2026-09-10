@@ -211,26 +211,18 @@ async function caricaAltriPrincipali(client, ruis, ruiCliente) {
   return aPezzi(ruis, async (pezzo) => {
     const { rows } = await client.query(
       `
-      select distinct
-        case
-          when c.num_iscr_collaboratori_i_liv = any($1::text[])
-            then c.num_iscr_collaboratori_i_liv
-          else c.num_iscr_collaboratori_ii_liv
-        end as rui_mio,
-        c.num_iscr_intermediario as rui_principale,
+      select
+        r.collegato as rui_mio,
+        r.principale as rui_principale,
         i.denominazione,
         i.sezione
-      from collaboratori c
-      join intermediari i
-        on i.numero_iscrizione_rui = c.num_iscr_intermediario
-       and i.sezione = any($2::text[])
-      where (
-          c.num_iscr_collaboratori_i_liv = any($1::text[])
-          or c.num_iscr_collaboratori_ii_liv = any($1::text[])
-        )
-        and c.num_iscr_intermediario <> $3
+      from rete_collegati r
+      join intermediari i on i.numero_iscrizione_rui = r.principale
+      where r.collegato = any($1::text[])
+        and r.principale <> $2
+        and r.sezione_principale = any($3::text[])
       `,
-      [pezzo, SEZIONI_ATTIVE, ruiCliente],
+      [pezzo, ruiCliente, SEZIONI_ATTIVE],
     );
     return rows;
   });
@@ -239,25 +231,15 @@ async function caricaAltriPrincipali(client, ruis, ruiCliente) {
 async function collaboratoriSottoBroker(client, ruiBroker) {
   const { rows } = await client.query(
     `
-    with sotto as (
-      select c.num_iscr_collaboratori_i_liv as rui
-      from collaboratori c
-      where c.num_iscr_intermediario = $1
-        and c.num_iscr_collaboratori_i_liv is not null
-      union
-      select c.num_iscr_collaboratori_ii_liv
-      from collaboratori c
-      where c.num_iscr_intermediario = $1
-        and c.num_iscr_collaboratori_ii_liv is not null
-    )
     select distinct on (i.numero_iscrizione_rui)
       i.numero_iscrizione_rui as rui,
       i.denominazione,
       i.sezione,
       i.inoperativo
-    from sotto s
-    join intermediari i on i.numero_iscrizione_rui = s.rui
-    where i.sezione = any($2::text[])
+    from rete_collegati r
+    join intermediari i on i.numero_iscrizione_rui = r.collegato
+    where r.principale = $1
+      and r.sezione_collegato = any($2::text[])
     order by i.numero_iscrizione_rui, i.inoperativo, i.oss
     `,
     [ruiBroker, SEZIONI_ATTIVE],
