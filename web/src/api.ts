@@ -29,6 +29,25 @@ export async function postJson<T>(path: string, body: unknown): Promise<T> {
   return corpo as T;
 }
 
+export async function deleteJson<T>(path: string): Promise<T> {
+  const risposta = await fetch(path, { method: "DELETE" });
+  const testo = await risposta.text();
+  let corpo: unknown = null;
+  try {
+    corpo = testo ? JSON.parse(testo) : null;
+  } catch {
+    corpo = { errore: testo || "risposta non valida" };
+  }
+  if (!risposta.ok) {
+    const msg =
+      corpo && typeof corpo === "object" && "errore" in corpo
+        ? String((corpo as { errore: unknown }).errore)
+        : `errore ${risposta.status}`;
+    throw new ApiError(risposta.status, msg);
+  }
+  return corpo as T;
+}
+
 export async function getJson<T>(path: string): Promise<T> {
   const risposta = await fetch(path);
   const testo = await risposta.text();

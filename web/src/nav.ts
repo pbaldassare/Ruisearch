@@ -108,7 +108,7 @@ export const VOCI_CLIENTE: VoceMenu[] = [
     label: "Fidelizzazione",
     path: "/cliente/fidelizzazione",
     icon: Heart,
-    descrizione: "Stato della relazione con la rete. Struttura iniziale, da calibrare.",
+    descrizione: "Con chi lavora la tua rete, grafici e avvisi sui broker sorvegliati.",
   },
   {
     id: "controllo",

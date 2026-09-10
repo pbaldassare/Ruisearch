@@ -5,10 +5,13 @@
 import http from 'node:http';
 import { verificaAccesso } from '../src/auth-login.js';
 import {
+  aggiungiBrokerSorvegliato,
   controlloRuiCliente,
   estrattoCliente,
   fidelizzazioneCliente,
+  marcaAlertLetto,
   opportunityCliente,
+  rimuoviBrokerSorvegliato,
 } from '../src/cliente.js';
 import { closePool, withClient } from '../src/db.js';
 import { interpretaDomanda } from '../src/domanda.js';
@@ -37,7 +40,7 @@ function jsonDate(_chiave, valore) {
 function cors(extra = {}) {
   return {
     'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
     'access-control-allow-headers': 'content-type, x-api-key, authorization',
     ...extra,
   };
@@ -149,6 +152,29 @@ async function gestisci(req, res) {
     invia(res, 200, esito);
     return;
   }
+  if (path === '/cliente/sorveglianza' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await withClient((client) =>
+      aggiungiBrokerSorvegliato(client, corpo.rui || corpo.rui_cliente, corpo.rui_broker || corpo.broker),
+    );
+    invia(res, 200, out);
+    return;
+  }
+  if (path === '/cliente/sorveglianza' && req.method === 'DELETE') {
+    const out = await withClient((client) =>
+      rimuoviBrokerSorvegliato(client, q.rui, q.broker || q.rui_broker),
+    );
+    invia(res, 200, out);
+    return;
+  }
+  if (path === '/cliente/alert' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await withClient((client) =>
+      marcaAlertLetto(client, corpo.rui || corpo.rui_cliente, { id: corpo.id, tutti: corpo.tutti }),
+    );
+    invia(res, 200, out);
+    return;
+  }
   if (path === '/query/ai' && req.method === 'POST') {
     const corpo = await corpoJson(req);
     const out = await withClient((client) => approfondisciConKimi(client, corpo));
@@ -176,7 +202,15 @@ async function gestisci(req, res) {
 
   if (
     req.method !== 'GET'
-    && !(req.method === 'POST' && (path === '/query' || path === '/v1/query' || path === '/query/ai' || path === '/auth/login'))
+    && !(req.method === 'POST' && (
+      path === '/query'
+      || path === '/v1/query'
+      || path === '/query/ai'
+      || path === '/auth/login'
+      || path === '/cliente/sorveglianza'
+      || path === '/cliente/alert'
+    ))
+    && !(req.method === 'DELETE' && path === '/cliente/sorveglianza')
   ) {
     invia(res, 405, { errore: 'metodo non ammesso' });
     return;
