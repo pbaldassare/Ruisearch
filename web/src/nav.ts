@@ -10,6 +10,7 @@ import {
   RefreshCw,
   ShieldCheck,
   UserCog,
+  UserPlus,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -71,6 +72,13 @@ export const VOCI: VoceMenu[] = [
     path: "/app/query",
     icon: MessageSquare,
     descrizione: "Domande in italiano sul registro. Dopo lo script puoi approfondire ulteriormente.",
+  },
+  {
+    id: "utenti",
+    label: "Utenti",
+    path: "/app/utenti",
+    icon: UserPlus,
+    descrizione: "Crea operatori cliente. La password è sempre Leone123!.",
   },
   {
     id: "documentazione",

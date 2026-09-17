@@ -28,6 +28,7 @@ import {
   scheda,
   storicoImport,
 } from '../src/query.js';
+import { creaUtenteCliente, elencoUtentiCliente, reimpostaPasswordUtente } from '../src/utenti.js';
 
 const HOST = process.env.RUI_API_HOST || '127.0.0.1';
 const PORT = Number(process.env.RUI_API_PORT || 8787);
@@ -126,6 +127,7 @@ async function esegui(path, q, client, req) {
   if (path === '/cliente/fidelizzazione') return fidelizzazioneCliente(client, q.rui);
   if (path === '/cliente/controllo') return controlloRuiCliente(client, q.rui);
   if (path === '/cliente/opportunity') return opportunityCliente(client, q.rui);
+  if (path === '/admin/utenti') return elencoUtentiCliente(client);
   const errore = new Error('non trovato');
   errore.statusCode = 404;
   throw errore;
@@ -164,6 +166,18 @@ async function gestisci(req, res) {
     const out = await withClient((client) =>
       rimuoviBrokerSorvegliato(client, q.rui, q.broker || q.rui_broker),
     );
+    invia(res, 200, out);
+    return;
+  }
+  if (path === '/admin/utenti' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await withClient((client) => creaUtenteCliente(client, corpo));
+    invia(res, 200, out);
+    return;
+  }
+  if (path === '/admin/utenti/password' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await withClient((client) => reimpostaPasswordUtente(client, corpo.email));
     invia(res, 200, out);
     return;
   }
@@ -209,6 +223,8 @@ async function gestisci(req, res) {
       || path === '/auth/login'
       || path === '/cliente/sorveglianza'
       || path === '/cliente/alert'
+      || path === '/admin/utenti'
+      || path === '/admin/utenti/password'
     ))
     && !(req.method === 'DELETE' && path === '/cliente/sorveglianza')
   ) {

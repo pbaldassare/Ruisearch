@@ -20,6 +20,7 @@ import { IntermediariClientePage } from "@/pages/cliente/IntermediariCliente";
 import { FidelizzazionePage } from "@/pages/cliente/Fidelizzazione";
 import { ControlloRuiPage } from "@/pages/cliente/ControlloRui";
 import { OpportunityPage } from "@/pages/cliente/Opportunity";
+import { UtentiPage } from "@/pages/Utenti";
 import { VOCI, VOCI_CLIENTE } from "@/nav";
 
 function RichiedeAdmin() {
@@ -66,6 +67,7 @@ export function App() {
         <Route path="cariche" element={<CarichePage />} />
         <Route path="query" element={<QueryPage />} />
         <Route path="documentazione" element={<DocumentazionePage />} />
+        <Route path="utenti" element={<UtentiPage />} />
         <Route path="aggiornamento" element={<AggiornamentoPage />} />
       </Route>
       <Route path="/cliente" element={<RichiedeCliente />}>
