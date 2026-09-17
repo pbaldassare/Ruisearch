@@ -10,9 +10,15 @@ import {
   estrattoCliente,
   fidelizzazioneCliente,
   marcaAlertLetto,
-  opportunityCliente,
   rimuoviBrokerSorvegliato,
 } from '../src/cliente.js';
+import { cercaMercato, schedaMercato } from '../src/mercato.js';
+import {
+  aggiornaStatoOpportunity,
+  arricchisciOpportunity,
+  elencoOpportunity,
+  salvaOpportunity,
+} from '../src/opportunity.js';
 import { closePool, withClient } from '../src/db.js';
 import { interpretaDomanda } from '../src/domanda.js';
 import { approfondisciConKimi, kimiPronta } from '../src/kimi-approfondisci.js';
@@ -126,7 +132,13 @@ async function esegui(path, q, client, req) {
   if (path === '/cliente/estratto') return estrattoCliente(client, q.rui);
   if (path === '/cliente/fidelizzazione') return fidelizzazioneCliente(client, q.rui);
   if (path === '/cliente/controllo') return controlloRuiCliente(client, q.rui);
-  if (path === '/cliente/opportunity') return opportunityCliente(client, q.rui);
+  if (path === '/cliente/opportunity') return elencoOpportunity(client, q.rui);
+  if (path === '/cliente/mercato') {
+    return cercaMercato(client, {
+      zona: q.zona, compagnia: q.compagnia, sezione: q.sezione, limite: q.limit, q: q.q,
+    });
+  }
+  if (path === '/cliente/mercato/scheda') return schedaMercato(client, q.rui);
   if (path === '/admin/utenti') return elencoUtentiCliente(client);
   const errore = new Error('non trovato');
   errore.statusCode = 404;
@@ -181,6 +193,24 @@ async function gestisci(req, res) {
     invia(res, 200, out);
     return;
   }
+  if (path === '/cliente/opportunity' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await withClient((client) => salvaOpportunity(client, corpo));
+    invia(res, 200, out);
+    return;
+  }
+  if (path === '/cliente/opportunity/stato' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await withClient((client) => aggiornaStatoOpportunity(client, corpo));
+    invia(res, 200, out);
+    return;
+  }
+  if (path === '/cliente/opportunity/arricchisci' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await withClient((client) => arricchisciOpportunity(client, corpo));
+    invia(res, 200, out);
+    return;
+  }
   if (path === '/cliente/alert' && req.method === 'POST') {
     const corpo = await corpoJson(req);
     const out = await withClient((client) =>
@@ -225,6 +255,9 @@ async function gestisci(req, res) {
       || path === '/cliente/alert'
       || path === '/admin/utenti'
       || path === '/admin/utenti/password'
+      || path === '/cliente/opportunity'
+      || path === '/cliente/opportunity/stato'
+      || path === '/cliente/opportunity/arricchisci'
     ))
     && !(req.method === 'DELETE' && path === '/cliente/sorveglianza')
   ) {

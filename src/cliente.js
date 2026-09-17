@@ -10,7 +10,7 @@ function erroreHttp(messaggio, status) {
   return errore;
 }
 
-async function clienteDaRui(client, rui) {
+export async function clienteDaRui(client, rui) {
   const numero = normalizzaRui(rui);
   if (!numero) throw erroreHttp(`RUI cliente non valido: ${rui}`, 400);
   const { rows } = await client.query(

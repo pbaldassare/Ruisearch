@@ -477,6 +477,7 @@ async function eseguiWeb(nome, argsGrezzi, nomeVersoUri) {
 export async function approfondisciConKimi(client, corpo) {
   const domanda = String(corpo?.q || corpo?.domanda || '').trim();
   const risultato = corpo?.risultato;
+  const maxWeb = Math.min(Math.max(Number(corpo?.max_web) || MAX_WEB, 1), 6);
   if (!domanda) throw erroreHttp(400, 'manca la domanda da approfondire.');
   if (!risultato || typeof risultato !== 'object') {
     throw erroreHttp(400, 'esegui prima una ricerca dallo script, poi chiedi l\'approfondimento AI.');
@@ -619,8 +620,8 @@ export async function approfondisciConKimi(client, corpo) {
             contenuto = jsonBreve({
               errore: 'Prima interroga il RUI con cerca_rui, scheda_rui o rete_rui. Poi puoi cercare sul web.',
             });
-          } else if (webUsato >= MAX_WEB) {
-            contenuto = jsonBreve({ errore: `limite di ${MAX_WEB} ricerche web raggiunto` });
+          } else if (webUsato >= maxWeb) {
+            contenuto = jsonBreve({ errore: `limite di ${maxWeb} ricerche web raggiunto` });
           } else {
             webUsato += 1;
             passi.push({ origine: 'web', strumento: nome, dettaglio: String(dettaglio) });

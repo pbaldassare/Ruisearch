@@ -109,7 +109,7 @@ export const VOCI_CLIENTE: VoceMenu[] = [
     label: "Intermediari",
     path: "/cliente/intermediari",
     icon: Users,
-    descrizione: "Collaboratori A/B/E collegati direttamente a questa iscrizione, I e II livello.",
+    descrizione: "La tua rete, oppure cerca broker e agenti per zona e mandato.",
   },
   {
     id: "fidelizzazione",
@@ -130,6 +130,6 @@ export const VOCI_CLIENTE: VoceMenu[] = [
     label: "Opportunity",
     path: "/cliente/opportunity",
     icon: Lightbulb,
-    descrizione: "Aree di sviluppo sulla rete. Le regole si affineranno dopo.",
+    descrizione: "Prospect salvati, recapiti da web e stato di lavoro.",
   },
 ];
