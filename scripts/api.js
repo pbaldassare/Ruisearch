@@ -12,7 +12,7 @@ import {
   marcaAlertLetto,
   rimuoviBrokerSorvegliato,
 } from '../src/cliente.js';
-import { cercaMercato, schedaMercato } from '../src/mercato.js';
+import { cercaMercato, schedaMercato, storicoMercato } from '../src/mercato.js';
 import {
   aggiornaStatoOpportunity,
   arricchisciOpportunity,
@@ -136,8 +136,10 @@ async function esegui(path, q, client, req) {
   if (path === '/cliente/mercato') {
     return cercaMercato(client, {
       zona: q.zona, compagnia: q.compagnia, sezione: q.sezione, limite: q.limit, q: q.q,
+      rui_cliente: q.rui,
     });
   }
+  if (path === '/cliente/mercato/storico') return storicoMercato(client, q.rui, q.id);
   if (path === '/cliente/mercato/scheda') return schedaMercato(client, q.rui);
   if (path === '/admin/utenti') return elencoUtentiCliente(client);
   const errore = new Error('non trovato');

@@ -17,6 +17,7 @@ import { QueryPage } from "@/pages/Query";
 import { DocumentazionePage } from "@/pages/Documentazione";
 import { EstrattoClientePage } from "@/pages/cliente/Estratto";
 import { IntermediariClientePage } from "@/pages/cliente/IntermediariCliente";
+import { ReteMercatoPage } from "@/pages/cliente/ReteMercato";
 import { FidelizzazionePage } from "@/pages/cliente/Fidelizzazione";
 import { ControlloRuiPage } from "@/pages/cliente/ControlloRui";
 import { OpportunityPage } from "@/pages/cliente/Opportunity";
@@ -73,6 +74,7 @@ export function App() {
       <Route path="/cliente" element={<RichiedeCliente />}>
         <Route index element={<EstrattoClientePage />} />
         <Route path="intermediari" element={<IntermediariClientePage />} />
+        <Route path="intermediari/:rui" element={<ReteMercatoPage />} />
         <Route path="fidelizzazione" element={<FidelizzazionePage />} />
         <Route path="controllo-rui" element={<ControlloRuiPage />} />
         <Route path="opportunity" element={<OpportunityPage />} />

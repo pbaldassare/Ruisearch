@@ -1,5 +1,6 @@
 // Ricerca broker/agenti per zona e mandato, più scheda con sub-agenti.
 
+import { clienteDaRui } from './cliente.js';
 import { rete, scheda, sezioniRichieste, SEZIONI_ATTIVE } from './query.js';
 
 const ZONE = {
@@ -105,7 +106,121 @@ export function interpretaQueryMercato(testo) {
   return { zona, compagnia, sezione };
 }
 
-export async function cercaMercato(client, { zona, compagnia, sezione, limite, q } = {}) {
+function chiaveRicerca(zona, compagnia, sezioni) {
+  const z = senzaAccenti(zona || '').replace(/\s+/g, ' ').trim();
+  const c = senzaAccenti(compagnia || '').replace(/\s+/g, ' ').trim();
+  const s = [...(sezioni || [])].map((x) => String(x).toUpperCase()).sort().join(',');
+  return `${z}|${c}|${s}`;
+}
+
+async function persistRicerca(client, ruiCliente, { frase, zona, compagnia, sezioni, nota, items }) {
+  const cliente = await clienteDaRui(client, ruiCliente);
+  if (!cliente) return null;
+  const chiave = chiaveRicerca(zona, compagnia, sezioni);
+  const ins = await client.query(
+    `
+    insert into cliente_ricerca_mercato (
+      cliente_id, chiave, frase, zona, compagnia, sezione, nota, aggiornato_il
+    )
+    values ($1, $2, $3, $4, $5, $6, $7, now())
+    on conflict (cliente_id, chiave) do update
+      set frase = coalesce(excluded.frase, cliente_ricerca_mercato.frase),
+          zona = excluded.zona,
+          compagnia = excluded.compagnia,
+          sezione = excluded.sezione,
+          nota = excluded.nota,
+          aggiornato_il = now()
+    returning id
+    `,
+    [
+      cliente.id, chiave, frase || null, zona || null, compagnia || null,
+      [...sezioni].sort().join(','), nota || null,
+    ],
+  );
+  const ricercaId = ins.rows[0].id;
+  for (const r of items) {
+    await client.query(
+      `
+      insert into cliente_ricerca_risultati (
+        ricerca_id, rui, denominazione, sezione, inoperativo, subagenti, comuni, province
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8)
+      on conflict (ricerca_id, rui) do update
+        set denominazione = excluded.denominazione,
+            sezione = excluded.sezione,
+            inoperativo = excluded.inoperativo,
+            subagenti = excluded.subagenti,
+            comuni = excluded.comuni,
+            province = excluded.province
+      `,
+      [
+        ricercaId, r.rui, r.denominazione, r.sezione, r.inoperativo,
+        Number(r.subagenti) || 0, r.comuni, r.province,
+      ],
+    );
+  }
+  return ricercaId;
+}
+
+async function leggiRisultati(client, ricercaId) {
+  const { rows } = await client.query(
+    `
+    select rui, denominazione, sezione, inoperativo, subagenti, comuni, province
+    from cliente_ricerca_risultati
+    where ricerca_id = $1
+    order by denominazione, rui
+    `,
+    [ricercaId],
+  );
+  return rows;
+}
+
+export async function storicoMercato(client, ruiCliente, ricercaId) {
+  const cliente = await clienteDaRui(client, ruiCliente);
+  if (!cliente) throw erroreHttp(`nessun cliente attivo con RUI ${ruiCliente}`, 404);
+  const { rows: ricerche } = await client.query(
+    `
+    select
+      r.id,
+      r.frase,
+      r.zona,
+      r.compagnia,
+      r.sezione,
+      r.nota,
+      r.aggiornato_il,
+      (select count(*)::int from cliente_ricerca_risultati x where x.ricerca_id = r.id) as n
+    from cliente_ricerca_mercato r
+    where r.cliente_id = $1
+    order by r.aggiornato_il desc
+    limit 20
+    `,
+    [cliente.id],
+  );
+  let scelta = ricerche[0] || null;
+  if (ricercaId) {
+    const id = Number(ricercaId);
+    scelta = ricerche.find((r) => Number(r.id) === id) || null;
+    if (!scelta) {
+      const una = await client.query(
+        `
+        select id, frase, zona, compagnia, sezione, nota, aggiornato_il
+        from cliente_ricerca_mercato
+        where cliente_id = $1 and id = $2
+        `,
+        [cliente.id, id],
+      );
+      scelta = una.rows[0] || null;
+    }
+  }
+  const items = scelta ? await leggiRisultati(client, scelta.id) : [];
+  return {
+    ricerche,
+    ricerca: scelta,
+    items,
+  };
+}
+
+export async function cercaMercato(client, { zona, compagnia, sezione, limite, q, rui_cliente } = {}) {
   const parsed = interpretaQueryMercato(q);
   const usaFrase = Boolean(String(q || '').trim());
   const sezScelta = usaFrase ? (parsed.sezione || sezione) : sezione;
@@ -188,10 +303,24 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
     ({ rows } = await client.query(sql, params));
   }
 
+  let ricercaId = null;
+  if (rui_cliente) {
+    ricercaId = await persistRicerca(client, rui_cliente, {
+      frase: String(q || '').trim() || null,
+      zona: z.testo,
+      compagnia: mand,
+      sezioni: params[0],
+      nota,
+      items: rows,
+    });
+  }
+
   return {
     filtri: { zona: z.testo || null, compagnia: mand || null, sezione: params[0] },
     nota,
     items: rows,
+    ricerca_id: ricercaId,
+    da_archivio: false,
   };
 }
 

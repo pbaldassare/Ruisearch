@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { Button, Card, Input } from "@/components/ui";
 import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from "@/components/Tabella";
 import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
-import { getJson, postJson, qs } from "@/api";
+import { getJson, qs } from "@/api";
 
 type IntermediarioRete = {
   rui_collegato: string;
@@ -26,11 +27,14 @@ type VoceMercato = {
   province: string | null;
 };
 
-type SchedaMercato = {
-  soggetto: { numero_iscrizione_rui: string; denominazione: string; sezione: string };
-  sedi: Array<{ indirizzo_sede: string | null; comune_sede: string | null; provincia_sede: string | null }>;
-  mandati: Array<{ ragione_sociale: string | null }>;
-  collaboratori: IntermediarioRete[];
+type RicercaSalvata = {
+  id: number | string;
+  frase: string | null;
+  zona: string | null;
+  compagnia: string | null;
+  sezione: string | null;
+  nota: string | null;
+  n: number;
 };
 
 const COLONNE_RETE: Colonna<IntermediarioRete>[] = [
@@ -41,6 +45,12 @@ const COLONNE_RETE: Colonna<IntermediarioRete>[] = [
   { id: "liv", etichetta: "Livello", cella: (r) => r.livello || "—" },
   { id: "stato", etichetta: "Stato", cella: (r) => <BadgeStato inoperativo={r.inoperativo} /> },
 ];
+
+function etichettaRicerca(r: RicercaSalvata) {
+  return [r.frase || [r.zona, r.compagnia].filter(Boolean).join(" · "), `${r.n} nominativi`]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 export function IntermediariClientePage() {
   const { cliente } = useAuth();
@@ -55,10 +65,10 @@ export function IntermediariClientePage() {
   const [sezione, setSezione] = useState("");
   const [notaRicerca, setNotaRicerca] = useState<string | null>(null);
   const [risultati, setRisultati] = useState<VoceMercato[]>([]);
-  const [scheda, setScheda] = useState<SchedaMercato | null>(null);
+  const [ricerche, setRicerche] = useState<RicercaSalvata[]>([]);
+  const [ricercaAttiva, setRicercaAttiva] = useState<string | number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [erroreAzione, setErroreAzione] = useState<string | null>(null);
-  const [okAzione, setOkAzione] = useState<string | null>(null);
 
   const reteFiltrata = useMemo(() => {
     const tutte = data?.intermediari ?? [];
@@ -72,23 +82,47 @@ export function IntermediariClientePage() {
     );
   }, [data, filtroRete]);
 
+  useEffect(() => {
+    if (!cliente) return;
+    void getJson<{ ricerche: RicercaSalvata[]; ricerca: RicercaSalvata | null; items: VoceMercato[] }>(
+      `/api/cliente/mercato/storico${qs({ rui: cliente.rui })}`,
+    ).then((out) => {
+      setRicerche(out.ricerche || []);
+      if (out.items?.length) {
+        setRisultati(out.items);
+        setRicercaAttiva(out.ricerca?.id ?? null);
+        setNotaRicerca(out.ricerca?.nota || "Ultima ricerca già in archivio.");
+        if (out.ricerca?.zona) setZona(out.ricerca.zona);
+        if (out.ricerca?.compagnia) setCompagnia(out.ricerca.compagnia);
+        if (out.ricerca?.frase) setFrase(out.ricerca.frase);
+      }
+    }).catch(() => {
+      // Lo storico non deve bloccare una nuova ricerca.
+    });
+  }, [cliente]);
+
   async function cerca() {
+    if (!cliente) return;
     setErroreAzione(null);
-    setOkAzione(null);
-    setScheda(null);
     setBusy("cerca");
     try {
       const out = await getJson<{
         items: VoceMercato[];
         nota?: string | null;
+        ricerca_id?: number | string | null;
         filtri?: { zona?: string | null; compagnia?: string | null; sezione?: string[] };
       }>(
-        `/api/cliente/mercato${qs({ q: frase, zona, compagnia, sezione, limit: 40 })}`,
+        `/api/cliente/mercato${qs({ q: frase, zona, compagnia, sezione, limit: 40, rui: cliente.rui })}`,
       );
       setRisultati(out.items || []);
-      setNotaRicerca(out.nota || null);
+      setNotaRicerca(out.nota || "Ricerca salvata. Stessi filtri non creano doppioni.");
+      setRicercaAttiva(out.ricerca_id ?? null);
       if (out.filtri?.zona) setZona(out.filtri.zona);
       if (out.filtri?.compagnia) setCompagnia(out.filtri.compagnia);
+      const storico = await getJson<{ ricerche: RicercaSalvata[] }>(
+        `/api/cliente/mercato/storico${qs({ rui: cliente.rui })}`,
+      );
+      setRicerche(storico.ricerche || []);
     } catch (err) {
       setErroreAzione(err instanceof Error ? err.message : "ricerca non riuscita");
     } finally {
@@ -96,44 +130,28 @@ export function IntermediariClientePage() {
     }
   }
 
-  async function apri(rui: string) {
+  async function apriStorico(id: string | number) {
+    if (!cliente) return;
     setErroreAzione(null);
-    setBusy(`scheda-${rui}`);
+    setBusy(`storico-${id}`);
     try {
-      const out = await getJson<SchedaMercato>(`/api/cliente/mercato/scheda${qs({ rui })}`);
-      setScheda(out);
+      const out = await getJson<{ ricerca: RicercaSalvata | null; items: VoceMercato[] }>(
+        `/api/cliente/mercato/storico${qs({ rui: cliente.rui, id })}`,
+      );
+      setRisultati(out.items || []);
+      setRicercaAttiva(out.ricerca?.id ?? id);
+      setNotaRicerca(out.ricerca?.nota || "Ricerca già salvata, niente doppioni.");
+      if (out.ricerca?.zona) setZona(out.ricerca.zona);
+      if (out.ricerca?.compagnia) setCompagnia(out.ricerca.compagnia);
+      if (out.ricerca?.frase) setFrase(out.ricerca.frase);
     } catch (err) {
-      setErroreAzione(err instanceof Error ? err.message : "scheda non disponibile");
+      setErroreAzione(err instanceof Error ? err.message : "archivio non disponibile");
     } finally {
       setBusy(null);
     }
   }
 
-  async function arricchisci(ruiTarget: string, ruiBroker?: string) {
-    if (!cliente) return;
-    setErroreAzione(null);
-    setOkAzione(null);
-    setBusy(`ai-${ruiTarget}`);
-    try {
-      const out = await postJson<{ recapiti: unknown[]; sintesi: string }>(
-        "/api/cliente/opportunity/arricchisci",
-        {
-          rui: cliente.rui,
-          rui_target: ruiTarget,
-          rui_broker: ruiBroker,
-          zona,
-          compagnia,
-        },
-      );
-      setOkAzione(
-        `Salvato in Opportunity: ${out.sintesi || ruiTarget}. Recapiti: ${out.recapiti?.length ?? 0}.`,
-      );
-    } catch (err) {
-      setErroreAzione(err instanceof Error ? err.message : "arricchimento non riuscito");
-    } finally {
-      setBusy(null);
-    }
-  }
+  const linkRete = qs({ zona, compagnia });
 
   const colonneMercato: Colonna<VoceMercato>[] = [
     { id: "nome", etichetta: "Nominativo", cella: (r) => r.denominazione },
@@ -145,26 +163,12 @@ export function IntermediariClientePage() {
       id: "az",
       etichetta: "",
       cella: (r) => (
-        <Button size="sm" variant="outline" disabled={Boolean(busy)} onClick={() => void apri(r.rui)}>
-          Apri rete
-        </Button>
-      ),
-    },
-  ];
-
-  const colonneSub: Colonna<IntermediarioRete>[] = [
-    ...COLONNE_RETE,
-    {
-      id: "ai",
-      etichetta: "",
-      cella: (r) => (
-        <Button
-          size="sm"
-          disabled={Boolean(busy)}
-          onClick={() => void arricchisci(r.rui_collegato, scheda?.soggetto.numero_iscrizione_rui)}
+        <Link
+          className="inline-flex h-9 items-center rounded-full border border-border bg-card px-4 text-sm font-semibold hover:bg-secondary"
+          to={`/cliente/intermediari/${encodeURIComponent(r.rui)}${linkRete}`}
         >
-          {busy === `ai-${r.rui_collegato}` ? "Cerco…" : "Cerca recapiti"}
-        </Button>
+          Apri rete
+        </Link>
       ),
     },
   ];
@@ -172,10 +176,10 @@ export function IntermediariClientePage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant={vista === "mercato" ? "default" : "outline"} onClick={() => setVista("mercato")}>
+        <Button type="button" size="sm" variant={vista === "mercato" ? "default" : "outline"} onClick={() => setVista("mercato")}>
           Cerca mercato
         </Button>
-        <Button size="sm" variant={vista === "rete" ? "default" : "outline"} onClick={() => setVista("rete")}>
+        <Button type="button" size="sm" variant={vista === "rete" ? "default" : "outline"} onClick={() => setVista("rete")}>
           La tua rete
         </Button>
       </div>
@@ -195,7 +199,7 @@ export function IntermediariClientePage() {
         <>
           <Card>
             <p className="text-sm text-muted-foreground">
-              Cerca broker e agenti per zona o mandato, tipo «broker su Roma con Allianz». Apri la rete, poi cerca i recapiti sul web: si salvano in Opportunity.
+              Cerca broker e agenti per zona o mandato. «Apri rete» apre la pagina dei sub-agenti. Ogni ricerca resta in database: stessi filtri non creano doppioni.
             </p>
             <div className="mt-4">
               <Input
@@ -221,13 +225,28 @@ export function IntermediariClientePage() {
               </select>
             </div>
             <div className="mt-4">
-              <Button disabled={Boolean(busy)} onClick={() => void cerca()}>
+              <Button type="button" disabled={Boolean(busy)} onClick={() => void cerca()}>
                 {busy === "cerca" ? "Cerco…" : "Cerca"}
               </Button>
             </div>
           </Card>
+          {ricerche.length ? (
+            <div className="flex flex-wrap gap-2">
+              {ricerche.map((r) => (
+                <Button
+                  key={String(r.id)}
+                  type="button"
+                  size="sm"
+                  variant={String(ricercaAttiva) === String(r.id) ? "default" : "outline"}
+                  disabled={Boolean(busy)}
+                  onClick={() => void apriStorico(r.id)}
+                >
+                  {etichettaRicerca(r)}
+                </Button>
+              ))}
+            </div>
+          ) : null}
           {erroreAzione ? <p className="text-sm text-destructive">{erroreAzione}</p> : null}
-          {okAzione ? <p className="text-sm text-primary">{okAzione}</p> : null}
           {notaRicerca ? <p className="text-sm text-muted-foreground">{notaRicerca}</p> : null}
           <Tabella
             colonne={colonneMercato}
@@ -235,45 +254,6 @@ export function IntermediariClientePage() {
             vuoto="Nessun intermediario per questi filtri. Prova zona o compagnia."
             chiave={(r) => r.rui}
           />
-          {scheda ? (
-            <Card>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-bold">{scheda.soggetto.denominazione}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {scheda.soggetto.numero_iscrizione_rui} · sez. {scheda.soggetto.sezione}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={Boolean(busy)}
-                  onClick={() => void arricchisci(scheda.soggetto.numero_iscrizione_rui)}
-                >
-                  Cerca recapiti del broker
-                </Button>
-              </div>
-              {scheda.sedi?.length ? (
-                <p className="mt-3 text-sm text-muted-foreground">
-                  Sedi: {scheda.sedi.map((s) => [s.indirizzo_sede, s.comune_sede, s.provincia_sede].filter(Boolean).join(", ")).join(" · ")}
-                </p>
-              ) : null}
-              {scheda.mandati?.length ? (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Mandati: {scheda.mandati.slice(0, 8).map((m) => m.ragione_sociale).filter(Boolean).join(" · ")}
-                </p>
-              ) : null}
-              <p className="mt-4 text-sm font-semibold">Sub-agenti / collaboratori</p>
-              <div className="mt-2">
-                <Tabella
-                  colonne={colonneSub}
-                  righe={scheda.collaboratori}
-                  vuoto="Nessun collaboratore A/B/E sotto questo intermediario."
-                  chiave={(r) => r.rui_collegato}
-                />
-              </div>
-            </Card>
-          ) : null}
         </>
       )}
     </div>
