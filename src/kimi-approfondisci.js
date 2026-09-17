@@ -357,7 +357,7 @@ function messaggioAssistente(message) {
   return out;
 }
 
-async function kimiFetch(percorso, { method = 'GET', body } = {}) {
+async function kimiFetch(percorso, { method = 'GET', body, timeoutMs = 120_000 } = {}) {
   const chiave = chiaveKimi();
   const risposta = await fetch(`${BASE}${percorso}`, {
     method,
@@ -366,7 +366,7 @@ async function kimiFetch(percorso, { method = 'GET', body } = {}) {
       'content-type': 'application/json',
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(45_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const testo = await risposta.text();
   let corpo = null;
@@ -478,6 +478,7 @@ export async function approfondisciConKimi(client, corpo) {
   const domanda = String(corpo?.q || corpo?.domanda || '').trim();
   const risultato = corpo?.risultato;
   const maxWeb = Math.min(Math.max(Number(corpo?.max_web) || MAX_WEB, 1), 6);
+  const budgetMs = Math.min(Math.max(Number(corpo?.budget_ms) || BUDGET_MS, 10_000), 180_000);
   if (!domanda) throw erroreHttp(400, 'manca la domanda da approfondire.');
   if (!risultato || typeof risultato !== 'object') {
     throw erroreHttp(400, 'esegui prima una ricerca dallo script, poi chiedi l\'approfondimento AI.');
@@ -572,7 +573,7 @@ export async function approfondisciConKimi(client, corpo) {
   const inizio = Date.now();
   try {
     for (let giro = 0; giro < MAX_GIRI; giro += 1) {
-      if (Date.now() - inizio > BUDGET_MS) return ripiego();
+      if (Date.now() - inizio > budgetMs) return ripiego();
       const resp = await kimiFetch('/chat/completions', { method: 'POST', body: corpoChat });
       const message = resp?.choices?.[0]?.message;
       if (!message) return ripiego();

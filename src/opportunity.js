@@ -145,7 +145,10 @@ async function salvaContatto(client, rui, tipo, valore, { etichetta, fonte, url 
     values ($1, $2, $3, $4, $5, $6, 'pubblico_recente')
     on conflict (numero_iscrizione_rui, tipo, valore) do update
       set etichetta = coalesce(excluded.etichetta, contatti.etichetta),
-          fonte = coalesce(excluded.fonte, contatti.fonte),
+          fonte = case
+            when contatti.fonte = 'rui' then contatti.fonte
+            else coalesce(excluded.fonte, contatti.fonte)
+          end,
           fonte_url = coalesce(excluded.fonte_url, contatti.fonte_url)
     `,
     [rui, t, v, etichettaContatto(t, etichetta, v), fonte || 'kimi_web', url || null],
@@ -165,6 +168,21 @@ function tipoDaEtichetta(etichetta, valore) {
   return 'altro';
 }
 
+function eRecapitoUtile(tipo, valore, etichetta) {
+  const v = String(valore || '').trim();
+  if (!v) return false;
+  const e = String(etichetta || '').toLowerCase();
+  if (['denominazione', 'rui', 'sezione', 'iscrizione', 'stato', 'sedi', 'mandati', 'intermediari', 'collaborazioni'].includes(e)) {
+    return false;
+  }
+  if (['email', 'telefono', 'pec', 'linkedin', 'sito', 'indirizzo'].includes(tipo)) return true;
+  const low = v.toLowerCase();
+  if (/linkedin\.com|facebook\.com|instagram\.com|twitter\.com|x\.com\//.test(low)) return true;
+  if (/^https?:\/\//i.test(v) || v.includes('@')) return true;
+  if (/^\+?\d[\d\s./()-]{6,}$/.test(v)) return true;
+  return false;
+}
+
 function etichettaContatto(tipo, etichetta, valore) {
   if (etichetta) return etichetta;
   const v = String(valore || '').toLowerCase();
@@ -176,6 +194,25 @@ function etichettaContatto(tipo, etichetta, valore) {
   if (tipo === 'indirizzo') return 'Indirizzo';
   if (tipo === 'sito') return 'Sito';
   return null;
+}
+
+function sintesiOpportunity(kimi, s) {
+  const testoKimi = String(kimi?.sintesi || '').trim();
+  const rui = s?.soggetto?.numero_iscrizione_rui || '';
+  const nome = s?.soggetto?.denominazione || rui;
+  const eSoloNome = !testoKimi || (testoKimi.includes(rui) && testoKimi.length < 80);
+  if (kimi && !eSoloNome) return testoKimi;
+  const sede = (s?.sedi || [])[0];
+  const pezzi = [
+    `${nome}${rui ? ` (${rui})` : ''}`,
+    sede
+      ? `Sede RUI: ${[sede.indirizzo_sede, sede.comune_sede, sede.provincia_sede].filter(Boolean).join(', ')}`
+      : null,
+    kimi
+      ? 'Ricerca web senza recapiti extra pubblici.'
+      : 'Kimi non configurata: salvati solo sede e sito del registro.',
+  ].filter(Boolean);
+  return pezzi.join('. ');
 }
 
 export async function arricchisciOpportunity(client, {
@@ -210,6 +247,7 @@ export async function arricchisciOpportunity(client, {
         'Non inventare. Se un dato non è pubblico, omettilo.',
       ].join(' '),
       max_web: 5,
+      budget_ms: 150_000,
       risultato: {
         scelto: {
           numero_iscrizione_rui: target,
@@ -233,9 +271,13 @@ export async function arricchisciOpportunity(client, {
         url: fondi.sede.url,
       });
     }
+    const skipCat = new Set(['anagrafica', 'rete']);
     for (const cat of kimi.categorie || []) {
+      if (skipCat.has(cat.id)) continue;
       for (const voce of cat.voci || []) {
-        await salvaContatto(client, target, tipoDaEtichetta(voce.etichetta, voce.valore), voce.valore, {
+        const tipo = tipoDaEtichetta(voce.etichetta, voce.valore);
+        if (!eRecapitoUtile(tipo, voce.valore, voce.etichetta)) continue;
+        await salvaContatto(client, target, tipo, voce.valore, {
           etichetta: voce.etichetta,
           url: voce.url,
         });
@@ -252,7 +294,7 @@ export async function arricchisciOpportunity(client, {
     where cliente_id = $1 and rui_target = $2
     returning *
     `,
-    [salvata.voce.cliente_id, target, kimi?.sintesi || 'Dati da registro. Kimi non configurata o senza nuovi recapiti.'],
+    [salvata.voce.cliente_id, target, sintesiOpportunity(kimi, s)],
   );
 
   const recapiti = await client.query(
@@ -270,6 +312,7 @@ export async function arricchisciOpportunity(client, {
     kimi_usata: Boolean(kimi),
     voce: upd.rows[0],
     recapiti: recapiti.rows,
-    sintesi: kimi?.sintesi || upd.rows[0].sintesi,
+    sintesi: upd.rows[0].sintesi,
+    passi: kimi?.passi || [],
   };
 }
