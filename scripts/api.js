@@ -36,7 +36,7 @@ import {
 } from '../src/query.js';
 import { creaUtenteCliente, elencoUtentiCliente, reimpostaPasswordUtente } from '../src/utenti.js';
 
-const HOST = process.env.RUI_API_HOST || '127.0.0.1';
+const HOST = process.env.RUI_API_HOST || '0.0.0.0';
 const PORT = Number(process.env.RUI_API_PORT || 8787);
 const API_KEY = (process.env.RUI_API_KEY || '').trim();
 
@@ -156,7 +156,9 @@ async function gestisci(req, res) {
 
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
   const q = queryDi(url);
-  const path = url.pathname.replace(/\/$/, '') || '/';
+  let path = url.pathname.replace(/\/$/, '') || '/';
+  if (path === '/api') path = '/';
+  else if (path.startsWith('/api/')) path = path.slice(4) || '/';
 
   if (path === '/health') {
     invia(res, 200, { ok: true });
