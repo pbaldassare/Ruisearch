@@ -21,7 +21,9 @@
     "api": "node scripts/api.js",
     "dev": "node scripts/dev.js",
     "dev:web": "npm run dev -w ruisearch-web",
-    "build": "npm run build -w ruisearch-web"
+    "build": "npm run build -w ruisearch-web",
+    "preview": "npm run preview -w ruisearch-web -- --host 0.0.0.0 --port 4173",
+    "start": "npm run build && node scripts/serve-web.js"
   },
   "dependencies": {
     "pg": "^8.13.1",

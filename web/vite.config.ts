@@ -23,4 +23,18 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    host: "0.0.0.0",
+    port: 4173,
+    allowedHosts: [".trycloudflare.com", "31.220.82.50"],
+    proxy: {
+      "/api": {
+        target: "http://127.0.0.1:8787",
+        changeOrigin: true,
+        timeout: 240_000,
+        proxyTimeout: 240_000,
+        rewrite: (path) => path.replace(/^\/api/, ""),
+      },
+    },
+  },
 });
