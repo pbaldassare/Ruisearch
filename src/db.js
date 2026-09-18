@@ -1,7 +1,11 @@
 import pg from 'pg';
 import { buildConnectionString } from './config.js';
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+// DATE resta 'YYYY-MM-DD': il driver altrimenti fa un Date a mezzanotte locale
+// che in JSON diventa il giorno prima (UTC).
+types.setTypeParser(types.builtins.DATE, (valore) => valore);
 
 let pool;
 

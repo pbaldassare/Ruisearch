@@ -21,6 +21,7 @@ import { from as copyFrom } from 'pg-copy-streams';
 import { TABELLE } from '../src/tables.js';
 import { leggiCsv, rigaPerCopy } from '../src/parse.js';
 import { withClient, closePool } from '../src/db.js';
+import { ricostruisciRete } from '../src/rete-materializzata.js';
 
 const URL_EXPORT =
   'https://ruipubblico.ivass.it/inquiry-public-manager/inquiry-public/esporta-registro';
@@ -147,6 +148,12 @@ async function main() {
         );
         throw errore;
       }
+
+      const rete = await ricostruisciRete(client);
+      log(
+        `rete A/B/E salvata: ${Number(rete.archi).toLocaleString('it-IT')} archi, ` +
+          `${Number(rete.soggetti).toLocaleString('it-IT')} iscritti`,
+      );
 
       await client.query(
         'update import_runs set esito = $1, concluso_il = now() where id = $2',

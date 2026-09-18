@@ -4,3 +4,5 @@ node_modules/
 data/
 *.zip
 *.csv
+web/dist
+web/node_modules
