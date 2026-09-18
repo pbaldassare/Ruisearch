@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=22"
   },
+  "workspaces": [
+    "web"
+  ],
   "scripts": {
     "check-db": "node scripts/check-connection.js",
     "import": "node scripts/import.js",
@@ -17,8 +20,8 @@
     "rete": "node scripts/ricostruisci-rete.js",
     "api": "node scripts/api.js",
     "dev": "node scripts/dev.js",
-    "dev:web": "npm run dev --prefix web",
-    "build": "npm ci --prefix web && npm run build --prefix web"
+    "dev:web": "npm run dev -w ruisearch-web",
+    "build": "npm run build -w ruisearch-web"
   },
   "dependencies": {
     "pg": "^8.13.1",
