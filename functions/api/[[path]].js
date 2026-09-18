@@ -1,12 +1,11 @@
-// Proxy /api/* dal frontend Pages verso l'API Node sul VPS.
+// Proxy /api/* da Pages verso il server (hostname, mai un IP grezzo: errore 1003).
 
-const DEFAULT_ORIGIN = 'http://31.220.82.50:8787';
+const DEFAULT_ORIGIN = 'http://vmi3562343.contaboserver.net';
 
 export async function onRequest(context) {
   const incoming = new URL(context.request.url);
   const origin = String(context.env.API_ORIGIN || DEFAULT_ORIGIN).replace(/\/$/, '');
-  const rest = incoming.pathname.replace(/^\/api/, '') || '/';
-  const dest = origin + rest + incoming.search;
+  const dest = origin + incoming.pathname + incoming.search;
   const headers = new Headers(context.request.headers);
   headers.delete('host');
   const method = context.request.method;

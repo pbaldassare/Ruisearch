@@ -3,4 +3,4 @@ compatibility_date = "2026-09-18"
 pages_build_output_dir = "./web/dist"
 
 [vars]
-API_ORIGIN = "http://31.220.82.50:8787"
+API_ORIGIN = "http://vmi3562343.contaboserver.net"

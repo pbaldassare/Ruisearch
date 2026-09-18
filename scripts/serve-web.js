@@ -10,7 +10,7 @@ const root = join(fileURLToPath(new URL('..', import.meta.url)));
 const dist = join(root, 'web/dist');
 const API = process.env.RUI_API_URL || 'http://127.0.0.1:8787';
 const HOST = process.env.RUI_WEB_HOST || '0.0.0.0';
-const PORT = Number(process.env.RUI_WEB_PORT || 4180);
+const PORT = Number(process.env.RUI_WEB_PORT || 80);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
