@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { qs, type IntermediarioLista, type Overview, type Pagina } from "@/api";
 import { useAuth } from "@/auth/AuthContext";
+import { Osso } from "@/components/Skeleton";
 import { Button, Input } from "@/components/ui";
 import { useApi, useDebounce } from "@/lib/useApi";
 import { formatNumero } from "@/lib/format";
@@ -198,7 +199,11 @@ function Kpi({ etichetta, valore }: { etichetta: string; valore?: string | numbe
   return (
     <div className="glass-card p-5">
       <p className="text-xs font-semibold text-muted-foreground">{etichetta}</p>
-      <p className="mt-2 font-display text-3xl">{valore != null ? formatNumero(valore) : "—"}</p>
+      {valore != null ? (
+        <p className="mt-2 font-display text-3xl">{formatNumero(valore)}</p>
+      ) : (
+        <Osso className="mt-3 h-8 w-16 rounded-lg" />
+      )}
     </div>
   );
 }
@@ -251,7 +256,19 @@ function CercaLive({ riservata }: { riservata: string }) {
           aria-label="Cerca intermediario"
         />
       </div>
-      {caricamento ? <p className="mt-4 text-sm text-muted-foreground">Cerco…</p> : null}
+      {caricamento ? (
+        <ul className="mt-4 divide-y divide-border/70 overflow-hidden rounded-3xl border border-border/70 bg-card" aria-busy>
+          {[1, 2, 3].map((i) => (
+            <li key={i} className="flex items-center justify-between gap-3 px-5 py-4">
+              <div className="min-w-0 flex-1 space-y-2">
+                <Osso className="h-4 w-48 max-w-full rounded-full" />
+                <Osso className="h-3 w-28 max-w-full rounded-full" />
+              </div>
+              <Osso className="h-6 w-10 shrink-0 rounded-full" />
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {errore ? <p className="mt-4 text-sm text-destructive">{errore}</p> : null}
       {cerca.trim().length >= 2 && !caricamento ? (
         <ul className="mt-4 divide-y divide-border/70 overflow-hidden rounded-3xl border border-border/70 bg-card">

@@ -186,13 +186,14 @@ export function IntermediariClientePage() {
 
       {vista === "rete" ? (
         <>
-          <MessaggioStato caricamento={caricamento} errore={errore} />
+          <MessaggioStato errore={errore} />
           <Input value={filtroRete} onChange={(e) => setFiltroRete(e.target.value)} placeholder="Cerca nome, RUI o qualifica" />
           <Tabella
             colonne={COLONNE_RETE}
             righe={reteFiltrata}
             vuoto="Nessun broker o intermediario in questa rete."
             chiave={(r) => `${r.rui_collegato}-${r.qualifica}`}
+            caricamento={caricamento}
           />
         </>
       ) : (
@@ -253,6 +254,7 @@ export function IntermediariClientePage() {
             righe={risultati}
             vuoto="Nessun intermediario per questi filtri. Prova zona o compagnia."
             chiave={(r) => r.rui}
+            caricamento={busy === "cerca" || Boolean(busy?.startsWith("storico"))}
           />
         </>
       )}

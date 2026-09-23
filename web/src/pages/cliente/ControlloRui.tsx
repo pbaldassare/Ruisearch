@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui";
+import { SkeletonCard } from "@/components/Skeleton";
 import { BadgeSezione, BadgeStato, MessaggioStato } from "@/components/Tabella";
 import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
@@ -40,7 +41,14 @@ export function ControlloRuiPage() {
 
   return (
     <div className="space-y-4">
-      <MessaggioStato caricamento={caricamento} errore={errore} />
+      <MessaggioStato errore={errore} />
+      {caricamento ? (
+        <>
+          <SkeletonCard righe={3} />
+          <SkeletonCard righe={2} />
+          <SkeletonCard righe={4} />
+        </>
+      ) : null}
       {(data?.segnalazioni ?? []).map((s) => (
         <Card key={s.id} className={cn("border", COLORE[s.gravita])}>
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.gravita}</p>

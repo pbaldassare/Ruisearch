@@ -111,7 +111,7 @@ export function UtentiPage() {
 
   return (
     <div className="space-y-6">
-      <MessaggioStato caricamento={caricamento} errore={errore} />
+      <MessaggioStato errore={errore} />
       <Card>
         <p className="text-sm font-semibold">Nuovo utente cliente</p>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -204,6 +204,7 @@ export function UtentiPage() {
         righe={data?.utenti ?? []}
         vuoto="Nessun utente cliente. Creane uno sopra."
         chiave={(r) => String(r.id)}
+        caricamento={caricamento}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 import { Building2, GitBranch, Handshake, Users } from "lucide-react";
 import { Card } from "@/components/ui";
+import { SkeletonCard, SkeletonKpi, SkeletonScheda } from "@/components/Skeleton";
 import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from "@/components/Tabella";
 import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
@@ -62,9 +63,9 @@ export function EstrattoClientePage() {
   const s = data?.soggetto;
 
   return (
-    <div className="space-y-6">
-      <MessaggioStato caricamento={caricamento} errore={errore} />
-      {s ? (
+    <div className="space-y-6" aria-busy={caricamento}>
+      <MessaggioStato errore={errore} />
+      {caricamento ? <SkeletonScheda /> : s ? (
         <Card>
           <p className="text-xs font-semibold uppercase text-muted-foreground">Iscrizione</p>
           <h3 className="mt-1 text-2xl font-bold">{s.denominazione}</h3>
@@ -76,6 +77,9 @@ export function EstrattoClientePage() {
       ) : null}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {KPI.map((k) => {
+          if (caricamento) {
+            return <SkeletonKpi key={k.label} etichetta={k.label} />;
+          }
           const Icona = k.icon;
           return (
             <Card key={k.label}>
@@ -94,6 +98,7 @@ export function EstrattoClientePage() {
         I collaboratori diretti sono gli iscritti A/B/E collegati a questa iscrizione nel RUI, I e II livello, senza doppioni.
         Non include la rete di altre società del gruppo (per esempio Consulbrokers Digital) né sezioni C, D, U.
       </p>
+      {caricamento ? <SkeletonCard righe={3} /> : null}
       {data?.sedi?.length ? (
         <Card>
           <h3 className="mb-3 text-lg font-bold">Sedi</h3>
@@ -122,7 +127,9 @@ export function EstrattoClientePage() {
           </ul>
         </Card>
       ) : null}
-      {data?.mandati?.length ? (
+      {caricamento ? (
+        <SkeletonCard righe={2} />
+      ) : data?.mandati?.length ? (
         <Card>
           <h3 className="mb-3 text-lg font-bold">Mandati</h3>
           <ul className="space-y-1 text-sm">
@@ -157,6 +164,7 @@ export function EstrattoClientePage() {
           righe={(data?.intermediari ?? []).slice(0, 12)}
           vuoto="Nessun intermediario collegato in A/B/E."
           chiave={(r) => r.rui_collegato}
+          caricamento={caricamento}
         />
       </div>
     </div>

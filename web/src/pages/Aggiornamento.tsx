@@ -1,5 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import { Button, Card } from "@/components/ui";
+import { Osso } from "@/components/Skeleton";
 import { MessaggioStato } from "@/components/Tabella";
 import { useApi } from "@/lib/useApi";
 import { formatNumero, formatQuando } from "@/lib/format";
@@ -13,8 +14,14 @@ export function AggiornamentoPage() {
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <p className="text-sm text-muted-foreground">Ultimo caricamento</p>
-        <MessaggioStato caricamento={caricamento} errore={errore} />
-        {ultimo ? (
+        <MessaggioStato errore={errore} />
+        {caricamento ? (
+          <>
+            <Osso className="mt-2 h-8 w-48 rounded-lg" />
+            <Osso className="mt-3 h-4 w-full rounded-full" />
+            <Osso className="mt-2 h-4 w-2/3 rounded-full" />
+          </>
+        ) : ultimo ? (
           <>
             <p className="mt-1 font-display text-2xl">
               Run #{ultimo.id} · {ultimo.esito}
@@ -24,7 +31,7 @@ export function AggiornamentoPage() {
               righe. L'export ufficiale IVASS non gira in automatico.
             </p>
           </>
-        ) : !caricamento && !errore ? (
+        ) : !errore ? (
           <p className="mt-1 font-display text-2xl">Mai eseguito</p>
         ) : null}
       </Card>

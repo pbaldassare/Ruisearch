@@ -1,5 +1,6 @@
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Button, Card } from "@/components/ui";
+import { SkeletonScheda } from "@/components/Skeleton";
 import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from "@/components/Tabella";
 import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
@@ -109,10 +110,11 @@ export function ReteMercatoPage() {
       <Link className="text-sm font-semibold text-primary hover:underline" to="/cliente/intermediari">
         ← Torna alle ricerche
       </Link>
-      <MessaggioStato caricamento={caricamento} errore={errore} />
+      <MessaggioStato errore={errore} />
       {erroreAzione ? <p className="text-sm text-destructive">{erroreAzione}</p> : null}
       {okAzione ? <p className="text-sm text-primary">{okAzione}</p> : null}
 
+      {caricamento ? <SkeletonScheda /> : null}
       {s ? (
         <Card>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -155,16 +157,17 @@ export function ReteMercatoPage() {
         </Card>
       ) : null}
 
-      {data ? (
+      {caricamento || data ? (
         <>
           <p className="text-sm font-semibold">Sub-agenti / collaboratori</p>
           <Tabella
             colonne={colonne}
-            righe={data.collaboratori}
+            righe={data?.collaboratori ?? []}
             vuoto="Nessun collaboratore A/B/E sotto questo intermediario."
             chiave={(r) => r.rui_collegato}
+            caricamento={caricamento}
           />
-          {data.principali?.length ? (
+          {data?.principali?.length ? (
             <>
               <p className="text-sm font-semibold">Principali</p>
               <Tabella

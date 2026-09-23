@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { SkeletonTabella } from "@/components/Skeleton";
 import { cn } from "@/lib/cn";
 
 export type Colonna<T> = {
@@ -13,12 +14,20 @@ export function Tabella<T>({
   righe,
   vuoto,
   chiave,
+  caricamento = false,
+  righeSkeleton = 6,
 }: {
   colonne: Colonna<T>[];
   righe: T[];
   vuoto: string;
   chiave: (riga: T) => string;
+  caricamento?: boolean;
+  righeSkeleton?: number;
 }) {
+  if (caricamento) {
+    return <SkeletonTabella colonne={colonne.length} righe={righeSkeleton} />;
+  }
+
   return (
     <div className="glass-card overflow-hidden">
       <div className="overflow-x-auto">
@@ -80,15 +89,11 @@ export function BadgeSezione({ sezione }: { sezione: string | null | undefined }
 }
 
 export function MessaggioStato({
-  caricamento,
   errore,
 }: {
-  caricamento: boolean;
+  caricamento?: boolean;
   errore: string | null;
 }) {
-  if (caricamento) {
-    return <p className="text-sm text-muted-foreground">Caricamento…</p>;
-  }
   if (errore) {
     return <p className="text-sm text-destructive">{errore}</p>;
   }

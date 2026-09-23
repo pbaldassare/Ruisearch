@@ -58,4 +58,40 @@
     @apply rounded-3xl border border-border/70 bg-card/85;
     box-shadow: var(--shadow-card);
   }
+
+  .skeleton-osso {
+    @apply relative overflow-hidden rounded-md bg-secondary;
+  }
+
+  .skeleton-osso::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(var(--card) / 0.88) 45%,
+      hsl(var(--card) / 0.95) 50%,
+      hsl(var(--card) / 0.88) 55%,
+      transparent 100%
+    );
+    animation: skeleton-shimmer 1.35s ease-in-out infinite;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-osso::after {
+    animation: none;
+  }
+
+  .skeleton-osso {
+    opacity: 0.75;
+  }
 }

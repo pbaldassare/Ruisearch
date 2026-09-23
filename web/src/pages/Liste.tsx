@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Search } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui";
+import { SkeletonCard, SkeletonKpi, SkeletonScheda } from "@/components/Skeleton";
 import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from "@/components/Tabella";
 import { getJson, qs, type CaricaRiga, type IntermediarioLista, type MandatoRiga, type Pagina, type Rete, type Scheda, type SedeRiga } from "@/api";
 import { MappaSedi } from "@/components/MappaSedi";
@@ -101,12 +102,13 @@ export function IntermediariPage() {
         <CampoRicerca valore={q} onChange={setQ} placeholder="Cerca per nome o numero RUI" />
         <FiltroSezione valore={sezione} onChange={setSezione} />
       </div>
-      <MessaggioStato caricamento={caricamento} errore={errore} />
+      <MessaggioStato errore={errore} />
       <Tabella
         colonne={colonne}
         righe={righe}
         vuoto="Nessun intermediario A, B o E corrisponde."
         chiave={(r) => `${r.oss}`}
+        caricamento={caricamento}
       />
       {prossimo ? (
         <Button variant="outline" onClick={() => void altre()}>
@@ -125,7 +127,19 @@ export function IntermediarioPage() {
 
   return (
     <div className="space-y-4">
-      <MessaggioStato caricamento={caricamento} errore={errore} />
+      <MessaggioStato errore={errore} />
+      {caricamento ? (
+        <>
+          <SkeletonScheda />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <SkeletonKpi conIcona={false} />
+            <SkeletonKpi conIcona={false} />
+            <SkeletonKpi conIcona={false} />
+          </div>
+          <SkeletonCard righe={3} />
+          <SkeletonCard righe={2} />
+        </>
+      ) : null}
       {s ? (
         <>
           <Card>
@@ -368,7 +382,8 @@ export function RetePage() {
       {!pronto && q.trim() ? (
         <p className="text-sm text-muted-foreground">Inserisci un RUI di sezione A, B o E.</p>
       ) : null}
-      <MessaggioStato caricamento={caricamento} errore={errore} />
+      <MessaggioStato errore={errore} />
+      {caricamento ? <SkeletonScheda /> : null}
       {data?.soggetto ? (
         <Card>
           <p className="text-sm text-muted-foreground">Centro</p>
@@ -418,8 +433,14 @@ export function SediPage() {
   return (
     <div className="space-y-4">
       <CampoRicerca valore={q} onChange={setQ} placeholder="Comune, indirizzo o RUI" />
-      <MessaggioStato caricamento={caricamento} errore={errore} />
-      <Tabella colonne={colonne} righe={data?.items ?? []} vuoto="Nessuna sede." chiave={(r) => String(r.oss)} />
+      <MessaggioStato errore={errore} />
+      <Tabella
+        colonne={colonne}
+        righe={data?.items ?? []}
+        vuoto="Nessuna sede."
+        chiave={(r) => String(r.oss)}
+        caricamento={caricamento}
+      />
     </div>
   );
 }
@@ -447,8 +468,14 @@ export function MandatiPage() {
   return (
     <div className="space-y-4">
       <CampoRicerca valore={q} onChange={setQ} placeholder="Compagnia, intermediario o RUI" />
-      <MessaggioStato caricamento={caricamento} errore={errore} />
-      <Tabella colonne={colonne} righe={data?.items ?? []} vuoto="Nessun mandato." chiave={(r) => String(r.oss)} />
+      <MessaggioStato errore={errore} />
+      <Tabella
+        colonne={colonne}
+        righe={data?.items ?? []}
+        vuoto="Nessun mandato."
+        chiave={(r) => String(r.oss)}
+        caricamento={caricamento}
+      />
     </div>
   );
 }
@@ -489,8 +516,14 @@ export function CarichePage() {
   return (
     <div className="space-y-4">
       <CampoRicerca valore={q} onChange={setQ} placeholder="Persona, società o RUI" />
-      <MessaggioStato caricamento={caricamento} errore={errore} />
-      <Tabella colonne={colonne} righe={data?.items ?? []} vuoto="Nessuna carica." chiave={(r) => String(r.oss)} />
+      <MessaggioStato errore={errore} />
+      <Tabella
+        colonne={colonne}
+        righe={data?.items ?? []}
+        vuoto="Nessuna carica."
+        chiave={(r) => String(r.oss)}
+        caricamento={caricamento}
+      />
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui";
+import { SkeletonCard } from "@/components/Skeleton";
 import { useApi } from "@/lib/useApi";
 
 type Doc = {
@@ -16,7 +17,13 @@ export function DocumentazionePage() {
 
   return (
     <div className="space-y-4">
-      {caricamento ? <p className="text-sm text-muted-foreground">Caricamento…</p> : null}
+      {caricamento ? (
+        <>
+          <SkeletonCard righe={4} />
+          <SkeletonCard righe={5} />
+          <SkeletonCard righe={3} />
+        </>
+      ) : null}
       {errore ? <p className="text-sm text-destructive">{errore}</p> : null}
       {data ? (
         <>

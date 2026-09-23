@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Button, Card } from "@/components/ui";
+import { SkeletonOpportunity } from "@/components/Skeleton";
 import { BadgeSezione, MessaggioStato } from "@/components/Tabella";
 import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
@@ -84,7 +85,7 @@ export function OpportunityPage() {
 
   return (
     <div className="space-y-4">
-      <MessaggioStato caricamento={caricamento} errore={errore} />
+      <MessaggioStato errore={errore} />
       <p className="text-sm text-muted-foreground">
         Qui arrivano i nominativi su cui hai premuto «Cerca recapiti». I dati restano in database.
         {data && !data.kimi_pronta ? " Kimi non è configurata: per ora si salvano sede e sito del RUI." : " Kimi cerca sul web, LinkedIn e i social."}
@@ -100,6 +101,14 @@ export function OpportunityPage() {
           </Button>
         ))}
       </div>
+      {caricamento ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <SkeletonOpportunity />
+          <SkeletonOpportunity />
+          <SkeletonOpportunity />
+          <SkeletonOpportunity />
+        </div>
+      ) : null}
       {voci.length === 0 && !caricamento ? (
         <Card>
           <p className="text-sm text-muted-foreground">

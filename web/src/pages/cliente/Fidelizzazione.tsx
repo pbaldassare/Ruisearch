@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Bell, Plus, X } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui";
+import { SkeletonBarre, SkeletonKpi, SkeletonRigaLista } from "@/components/Skeleton";
 import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from "@/components/Tabella";
 import { useAuth } from "@/auth/AuthContext";
 import { useApi, useDebounce } from "@/lib/useApi";
@@ -211,30 +212,41 @@ export function FidelizzazionePage() {
 
   return (
     <div className="space-y-6">
-      <MessaggioStato caricamento={caricamento} errore={errore} />
+      <MessaggioStato errore={errore} />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <p className="text-sm text-muted-foreground">Collaboratori diretti</p>
-          <p className="mt-1 font-display text-3xl">{data ? formatNumero(data.sintesi.in_rete) : "—"}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-muted-foreground">Lavorano anche altrove</p>
-          <p className="mt-1 font-display text-3xl">
-            {data ? formatNumero(data.sintesi?.lavorano_altrove) : "—"}
-          </p>
-        </Card>
-        <Card>
-          <p className="text-sm text-muted-foreground">Compagnie distinte</p>
-          <p className="mt-1 font-display text-3xl">
-            {data ? formatNumero(data.sintesi?.compagnie_distinte) : "—"}
-          </p>
-        </Card>
-        <Card>
-          <p className="text-sm text-muted-foreground">Avvisi da leggere</p>
-          <p className="mt-1 font-display text-3xl">
-            {data ? formatNumero(data.sintesi?.alert_non_letti) : "—"}
-          </p>
-        </Card>
+        {caricamento ? (
+          <>
+            <SkeletonKpi etichetta="Collaboratori diretti" conIcona={false} />
+            <SkeletonKpi etichetta="Lavorano anche altrove" conIcona={false} />
+            <SkeletonKpi etichetta="Compagnie distinte" conIcona={false} />
+            <SkeletonKpi etichetta="Avvisi da leggere" conIcona={false} />
+          </>
+        ) : (
+          <>
+            <Card>
+              <p className="text-sm text-muted-foreground">Collaboratori diretti</p>
+              <p className="mt-1 font-display text-3xl">{data ? formatNumero(data.sintesi.in_rete) : "—"}</p>
+            </Card>
+            <Card>
+              <p className="text-sm text-muted-foreground">Lavorano anche altrove</p>
+              <p className="mt-1 font-display text-3xl">
+                {data ? formatNumero(data.sintesi?.lavorano_altrove) : "—"}
+              </p>
+            </Card>
+            <Card>
+              <p className="text-sm text-muted-foreground">Compagnie distinte</p>
+              <p className="mt-1 font-display text-3xl">
+                {data ? formatNumero(data.sintesi?.compagnie_distinte) : "—"}
+              </p>
+            </Card>
+            <Card>
+              <p className="text-sm text-muted-foreground">Avvisi da leggere</p>
+              <p className="mt-1 font-display text-3xl">
+                {data ? formatNumero(data.sintesi?.alert_non_letti) : "—"}
+              </p>
+            </Card>
+          </>
+        )}
       </div>
 
       {nonLetti.length > 0 ? (
@@ -267,16 +279,25 @@ export function FidelizzazionePage() {
       ) : null}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Barre
-          titolo="Compagnie con cui lavorano"
-          voci={data?.grafici?.compagnie ?? []}
-          vuoto="Nessuna compagnia in registro sui mandati della rete o degli altri intermediari con cui lavorano."
-        />
-        <Barre
-          titolo="Altri intermediari con cui lavorano"
-          voci={data?.grafici?.principali ?? []}
-          vuoto="Nessun altro principale A/B/E: in registro la rete risulta solo sotto di te."
-        />
+        {caricamento ? (
+          <>
+            <SkeletonBarre />
+            <SkeletonBarre />
+          </>
+        ) : (
+          <>
+            <Barre
+              titolo="Compagnie con cui lavorano"
+              voci={data?.grafici?.compagnie ?? []}
+              vuoto="Nessuna compagnia in registro sui mandati della rete o degli altri intermediari con cui lavorano."
+            />
+            <Barre
+              titolo="Altri intermediari con cui lavorano"
+              voci={data?.grafici?.principali ?? []}
+              vuoto="Nessun altro principale A/B/E: in registro la rete risulta solo sotto di te."
+            />
+          </>
+        )}
       </div>
 
       <Card>
@@ -316,7 +337,9 @@ export function FidelizzazionePage() {
         </div>
         {erroreAzione ? <p className="mt-3 text-sm text-destructive">{erroreAzione}</p> : null}
         <div className="mt-4 space-y-2">
-          {(data?.sorvegliati ?? []).length === 0 ? (
+          {caricamento ? (
+            <SkeletonRigaLista n={3} />
+          ) : (data?.sorvegliati ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">Nessun broker in sorveglianza.</p>
           ) : (
             (data?.sorvegliati ?? []).map((s) => (
@@ -363,6 +386,7 @@ export function FidelizzazionePage() {
         righe={righe}
         vuoto="Nessun nominativo in rete da fidelizzare."
         chiave={(r) => r.rui_collegato}
+        caricamento={caricamento}
       />
     </div>
   );
