@@ -1,0 +1,17 @@
+[Unit]
+Description=Ruisearch API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/cursor projects/ruisearch
+Environment=RUI_API_HOST=0.0.0.0
+Environment=RUI_API_PORT=8787
+ExecStart=/usr/local/bin/node scripts/api.js
+Restart=always
+RestartSec=3
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

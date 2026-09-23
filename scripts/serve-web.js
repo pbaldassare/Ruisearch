@@ -52,21 +52,36 @@ async function proxyApi(req, res) {
 }
 
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url, `http://${HOST}:${PORT}`);
-  if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
-    proxyApi(req, res).catch((err) => {
-      res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ errore: err.message || 'API non raggiungibile' }));
-    });
-    return;
+  try {
+    const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
+    if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
+      proxyApi(req, res).catch((err) => {
+        if (!res.headersSent) {
+          res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ errore: err.message || 'API non raggiungibile' }));
+        }
+      });
+      return;
+    }
+    let pulito = url.pathname;
+    try {
+      pulito = decodeURIComponent(pulito);
+    } catch {
+      pulito = '/';
+    }
+    pulito = pulito.replace(/\.\./g, '');
+    const candidato = join(dist, pulito === '/' ? 'index.html' : pulito.replace(/^\//, ''));
+    if (existsSync(candidato) && statSync(candidato).isFile()) {
+      inviaFile(res, candidato);
+      return;
+    }
+    inviaFile(res, join(dist, 'index.html'));
+  } catch {
+    if (!res.headersSent) {
+      res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('bad request');
+    }
   }
-  const pulito = decodeURIComponent(url.pathname).replace(/\.\./g, '');
-  const candidato = join(dist, pulito === '/' ? 'index.html' : pulito.replace(/^\//, ''));
-  if (existsSync(candidato) && statSync(candidato).isFile()) {
-    inviaFile(res, candidato);
-    return;
-  }
-  inviaFile(res, join(dist, 'index.html'));
 });
 
 if (!existsSync(join(dist, 'index.html'))) {
