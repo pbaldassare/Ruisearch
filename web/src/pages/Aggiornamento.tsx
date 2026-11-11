@@ -123,11 +123,18 @@ export function AggiornamentoPage() {
     void leggiStato();
   }, [leggiStato]);
 
+  const remoto = Boolean(stato?.remoto);
+
   useEffect(() => {
+    // Online il caricamento gira su GitHub Actions: niente fasi da seguire
+    // al secondo, controllo lo storico ogni 30 secondi.
     if (!inCorso) return;
-    const t = window.setInterval(() => void leggiStato(), 1500);
+    const t = window.setInterval(() => {
+      void leggiStato();
+      if (remoto) setGiro((g) => g + 1);
+    }, remoto ? 30_000 : 1500);
     return () => window.clearInterval(t);
-  }, [inCorso, leggiStato]);
+  }, [inCorso, remoto, leggiStato]);
 
   async function avvia(forza = false) {
     setAvvio(true);
@@ -190,11 +197,43 @@ export function AggiornamentoPage() {
           l'aggiornamento l'app resta utilizzabile e, se qualcosa va storto, restano i dati di prima.
         </p>
 
-        {inCorso && stato ? (
+        {inCorso && stato && remoto ? (
+          <div className="mt-5 flex gap-3 rounded-2xl bg-primary/10 p-4 text-sm" role="status">
+            <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" />
+            <div>
+              <p className="font-semibold">Aggiornamento avviato</p>
+              <p className="mt-1 text-muted-foreground">
+                {stato.messaggio || "Il caricamento gira su GitHub Actions."} Lo storico qui sotto si aggiorna da solo;
+                puoi anche chiudere la pagina.
+              </p>
+              {stato.link ? (
+                <a className="mt-2 inline-block font-semibold text-primary hover:underline" href={stato.link} target="_blank" rel="noreferrer">
+                  Segui l'avanzamento su GitHub
+                </a>
+              ) : null}
+            </div>
+          </div>
+        ) : inCorso && stato ? (
           <div className="mt-5">
             <Avanzamento stato={stato} />
             <p className="mt-4 text-xs text-muted-foreground">
               Puoi chiudere questa pagina: l'aggiornamento continua sul server.
+            </p>
+          </div>
+        ) : remoto && !stato?.avviabile && stato?.link ? (
+          <div className="mt-5 space-y-2">
+            <a
+              href={stato.link}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-11 items-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground shadow-glow hover:bg-primary/90"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Avvia su GitHub
+            </a>
+            <p className="text-xs text-muted-foreground">
+              Si apre la pagina del workflow «Aggiorna registro IVASS»: premi «Run workflow». Per avviarlo
+              direttamente da qui serve il segreto GITHUB_TOKEN sulla funzione Supabase.
             </p>
           </div>
         ) : conferma ? (

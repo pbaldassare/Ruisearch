@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 
 // Node 22 legge il .env solo con --env-file; lo carichiamo a mano cosi' gli
 // script funzionano anche se invocati direttamente con `node`.
-if (existsSync('.env')) {
+if (typeof process.loadEnvFile === 'function' && existsSync('.env')) {
   process.loadEnvFile('.env');
 }
 
@@ -26,7 +26,8 @@ export function restConfig() {
  * DATABASE_URL, se presente, vince su tutto il resto.
  */
 export function buildConnectionString() {
-  const explicit = process.env.DATABASE_URL?.trim();
+  // SUPABASE_DB_URL e' fornita in automatico alle Edge Function di Supabase.
+  const explicit = process.env.DATABASE_URL?.trim() || process.env.SUPABASE_DB_URL?.trim();
   if (explicit) return explicit;
 
   const ref = process.env.SUPABASE_PROJECT_REF?.trim();

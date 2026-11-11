@@ -1,6 +1,7 @@
 // Admin da .env, operatori cliente da Postgres. Niente registrazione pubblica.
 
 import { timingSafeEqual } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import './config.js';
 import { verificaPassword } from './password.js';
 

@@ -8,3 +8,6 @@ web/dist
 web/node_modules
 # Configurazione di avvio locale di Claude Code (percorsi della macchina).
 .claude/launch.json
+# Copia di src/ generata da scripts/prepara-edge.js per la Edge Function.
+supabase/functions/ruisearch-api/lib/
+supabase/.temp/

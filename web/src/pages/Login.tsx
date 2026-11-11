@@ -70,7 +70,15 @@ export function LoginPage() {
               required
             />
           </label>
-          {errore ? <p className="text-sm text-destructive">{errore}</p> : null}
+          {errore ? (
+            <p className="text-sm text-destructive" role="alert">
+              {errore}
+            </p>
+          ) : params.get("scaduta") ? (
+            <p className="text-sm text-muted-foreground" role="status">
+              La sessione è scaduta: accedi di nuovo.
+            </p>
+          ) : null}
           <Button type="submit" className="w-full" disabled={inCorso}>
             <Lock className="h-4 w-4" />
             {inCorso ? "Accesso…" : "Entra"}

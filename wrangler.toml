@@ -3,4 +3,5 @@ compatibility_date = "2026-09-18"
 pages_build_output_dir = "./web/dist"
 
 [vars]
-API_ORIGIN = "http://vmi3562343.contaboserver.net"
+# Le API girano come Edge Function su Supabase (non piu' sul server Contabo).
+API_ORIGIN = "https://moyfkdwsghidkcifesrg.supabase.co/functions/v1/ruisearch-api"

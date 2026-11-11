@@ -7,6 +7,7 @@ import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from 
 import {
   getJson,
   qs,
+  scaricaFile,
   type CaricaRiga,
   type IntermediarioLista,
   type MandatoRiga,
@@ -114,7 +115,22 @@ function BarraRisultati({
   csv: string;
   nota?: string;
 }) {
+  const [scarico, setScarico] = useState(false);
+  const [erroreScarico, setErroreScarico] = useState<string | null>(null);
   if (totale == null) return null;
+
+  async function scarica() {
+    setScarico(true);
+    setErroreScarico(null);
+    try {
+      await scaricaFile(csv);
+    } catch (err) {
+      setErroreScarico(err instanceof Error ? err.message : "download non riuscito");
+    } finally {
+      setScarico(false);
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
       <p className="text-muted-foreground">
@@ -124,18 +140,22 @@ function BarraRisultati({
         {nota ? ` · ${nota}` : ""}
       </p>
       {totale > 0 ? (
-        <a
-          href={csv}
-          download
-          className="inline-flex h-9 items-center gap-2 rounded-full border border-border bg-card px-4 text-sm font-semibold hover:bg-secondary"
-          title={totale > MASSIMO_EXPORT ? `Scarica i primi ${formatNumero(MASSIMO_EXPORT)}` : undefined}
-        >
-          <Download className="h-4 w-4" />
-          Scarica CSV
-          {totale > MASSIMO_EXPORT ? (
-            <span className="text-muted-foreground">(primi {formatNumero(MASSIMO_EXPORT)})</span>
-          ) : null}
-        </a>
+        <div className="flex items-center gap-2">
+          {erroreScarico ? <span className="text-destructive">{erroreScarico}</span> : null}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void scarica()}
+            disabled={scarico}
+            title={totale > MASSIMO_EXPORT ? `Scarica i primi ${formatNumero(MASSIMO_EXPORT)}` : undefined}
+          >
+            {scarico ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Scarica CSV
+            {totale > MASSIMO_EXPORT ? (
+              <span className="text-muted-foreground">(primi {formatNumero(MASSIMO_EXPORT)})</span>
+            ) : null}
+          </Button>
+        </div>
       ) : null}
     </div>
   );

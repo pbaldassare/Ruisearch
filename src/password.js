@@ -1,4 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 
 export function hashPassword(password) {
   const salt = randomBytes(16).toString('hex');

@@ -6,65 +6,100 @@ export class ApiError extends Error {
   }
 }
 
-export async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const risposta = await fetch(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+/** Dove AuthContext salva la sessione (email, ruolo, token). */
+export const CHIAVE_SESSIONE = "rui_session_v4";
+
+function token(): string | null {
+  try {
+    const grezzo = sessionStorage.getItem(CHIAVE_SESSIONE);
+    return grezzo ? (JSON.parse(grezzo) as { token?: string }).token ?? null : null;
+  } catch {
+    return null;
+  }
+}
+
+function sessioneScaduta() {
+  try {
+    sessionStorage.removeItem(CHIAVE_SESSIONE);
+  } catch {
+    // niente: il redirect basta
+  }
+  if (!window.location.pathname.startsWith("/login")) {
+    window.location.assign(`/login?scaduta=1`);
+  }
+}
+
+async function richiesta(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  const t = token();
+  if (t) headers.set("authorization", `Bearer ${t}`);
+  let risposta: Response;
+  try {
+    risposta = await fetch(path, { ...init, headers });
+  } catch {
+    throw new ApiError(0, "Connessione assente: controlla la rete e riprova.");
+  }
+  if (risposta.status === 401 && t) sessioneScaduta();
+  return risposta;
+}
+
+async function leggi<T>(risposta: Response): Promise<T> {
   const testo = await risposta.text();
   let corpo: unknown = null;
+  let json = true;
   try {
     corpo = testo ? JSON.parse(testo) : null;
   } catch {
-    corpo = { errore: testo || "risposta non valida" };
+    json = false;
   }
   if (!risposta.ok) {
-    const msg =
-      corpo && typeof corpo === "object" && "errore" in corpo
-        ? String((corpo as { errore: unknown }).errore)
-        : `errore ${risposta.status}`;
-    throw new ApiError(risposta.status, msg);
+    if (json && corpo && typeof corpo === "object" && "errore" in corpo) {
+      throw new ApiError(risposta.status, String((corpo as { errore: unknown }).errore));
+    }
+    // Risposta non JSON (es. pagina di errore del proxy): mai mostrarla grezza.
+    throw new ApiError(
+      risposta.status,
+      risposta.status >= 500
+        ? "Il servizio non è raggiungibile in questo momento. Riprova tra poco."
+        : `Richiesta non riuscita (errore ${risposta.status}).`,
+    );
   }
+  if (!json) throw new ApiError(risposta.status, "Risposta non valida dal servizio.");
   return corpo as T;
+}
+
+export async function postJson<T>(path: string, body: unknown): Promise<T> {
+  return leggi<T>(
+    await richiesta(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
 }
 
 export async function deleteJson<T>(path: string): Promise<T> {
-  const risposta = await fetch(path, { method: "DELETE" });
-  const testo = await risposta.text();
-  let corpo: unknown = null;
-  try {
-    corpo = testo ? JSON.parse(testo) : null;
-  } catch {
-    corpo = { errore: testo || "risposta non valida" };
-  }
-  if (!risposta.ok) {
-    const msg =
-      corpo && typeof corpo === "object" && "errore" in corpo
-        ? String((corpo as { errore: unknown }).errore)
-        : `errore ${risposta.status}`;
-    throw new ApiError(risposta.status, msg);
-  }
-  return corpo as T;
+  return leggi<T>(await richiesta(path, { method: "DELETE" }));
 }
 
 export async function getJson<T>(path: string): Promise<T> {
-  const risposta = await fetch(path);
-  const testo = await risposta.text();
-  let corpo: unknown = null;
-  try {
-    corpo = testo ? JSON.parse(testo) : null;
-  } catch {
-    corpo = { errore: testo || "risposta non valida" };
-  }
-  if (!risposta.ok) {
-    const msg =
-      corpo && typeof corpo === "object" && "errore" in corpo
-        ? String((corpo as { errore: unknown }).errore)
-        : `errore ${risposta.status}`;
-    throw new ApiError(risposta.status, msg);
-  }
-  return corpo as T;
+  return leggi<T>(await richiesta(path));
+}
+
+/** Scarica un file (es. CSV) con la sessione: un link semplice non porta il token. */
+export async function scaricaFile(path: string): Promise<void> {
+  const risposta = await richiesta(path);
+  if (!risposta.ok) await leggi(risposta);
+  const nome =
+    /filename="([^"]+)"/.exec(risposta.headers.get("content-disposition") || "")?.[1] || "ruisearch.csv";
+  const url = URL.createObjectURL(await risposta.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nome;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 export function qs(params: Record<string, string | number | null | undefined>): string {
@@ -127,6 +162,12 @@ export type StatoAggiornamento = {
   esito: "completato" | "identico" | "validato" | "fallito" | null;
   errore: string | null;
   log: string[];
+  /** true online: il caricamento gira su GitHub Actions, non sul server. */
+  remoto?: boolean;
+  /** Online: il pulsante puo' avviare GitHub Actions da solo. */
+  avviabile?: boolean;
+  /** Online: pagina del workflow su GitHub. */
+  link?: string;
 };
 
 export type Collegato = {

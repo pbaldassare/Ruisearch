@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { postJson } from "@/api";
+import { CHIAVE_SESSIONE, postJson } from "@/api";
 
-const STORAGE_KEY = "rui_session_v3";
+const STORAGE_KEY = CHIAVE_SESSIONE;
 
 export type ClienteSessione = {
   id: number;
@@ -14,6 +14,7 @@ type Sessione = {
   email: string;
   ruolo: "admin" | "cliente";
   cliente?: ClienteSessione;
+  token?: string;
 };
 
 type AuthContextValue = {
@@ -31,7 +32,7 @@ function leggiSessione(): Sessione | null {
     const grezzo = sessionStorage.getItem(STORAGE_KEY);
     if (!grezzo) return null;
     const parsed = JSON.parse(grezzo) as Sessione;
-    if (!parsed?.email || (parsed.ruolo !== "admin" && parsed.ruolo !== "cliente")) return null;
+    if (!parsed?.email || !parsed.token || (parsed.ruolo !== "admin" && parsed.ruolo !== "cliente")) return null;
     return parsed;
   } catch {
     return null;

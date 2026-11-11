@@ -1,0 +1,53 @@
+# Aggiornamento del Registro Unico Intermediari dall'export IVASS.
+# Non parte mai da solo: lo avvia l'admin dalla pagina Aggiornamento di
+# Ruisearch (con GITHUB_TOKEN sulla Edge Function) oppure da qui con
+# "Run workflow".
+#
+# Serve il secret DATABASE_URL del repository: connection string del pooler
+# Supabase in *session mode* (porta 5432), perche' il caricamento usa COPY.
+
+name: Aggiorna registro IVASS
+
+on:
+  workflow_dispatch:
+    inputs:
+      forza:
+        description: "Ricarica anche se l'export è identico all'ultimo"
+        type: boolean
+        default: false
+
+concurrency:
+  group: aggiorna-registro
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Dipendenze (solo backend)
+        run: npm install --omit=dev --no-audit --no-fund --workspaces=false
+
+      - name: Scarica e carica il registro
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DB_POOL_MAX: "2"
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::Manca il secret DATABASE_URL del repository."
+            exit 1
+          fi
+          if [ "${{ inputs.forza }}" = "true" ]; then
+            node scripts/import.js --forza
+          else
+            node scripts/import.js
+          fi
