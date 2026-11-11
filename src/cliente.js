@@ -1,6 +1,6 @@
 // Estratto e viste operative di un cliente (oggi: un intermediario A/B e la sua rete).
 
-import { anagrafica, scheda, rete, normalizzaRui, SEZIONI_ATTIVE } from './query.js';
+import { anagrafica, scheda, normalizzaRui, SEZIONI_ATTIVE } from './query.js';
 
 const CHUNK = 400;
 
@@ -52,11 +52,9 @@ function mancaCliente(rui) {
 export async function caricaReteCliente(client, rui) {
   const numero = normalizzaRui(rui);
   if (!numero) mancaCliente(rui);
-  const [schedaSoggetto, reteSoggetto] = await Promise.all([
-    scheda(client, numero, { geocodifica: false }),
-    rete(client, numero),
-  ]);
-  return { numero, scheda: schedaSoggetto, rete: reteSoggetto };
+  // La scheda contiene gia' la rete: ricalcolarla a parte raddoppiava le query.
+  const schedaSoggetto = await scheda(client, numero, { geocodifica: false });
+  return { numero, scheda: schedaSoggetto, rete: schedaSoggetto.rete };
 }
 
 export async function estrattoCliente(client, rui) {
@@ -456,12 +454,14 @@ export async function controlloRuiCliente(client, rui) {
       voci: [],
     });
   }
-  if (!(s.mandati || []).length) {
+  // Solo gli agenti (sezione A) hanno mandati intestati: per un broker (B)
+  // e' normale non averne, e segnalarlo sarebbe un falso allarme.
+  if (s.soggetto?.sezione === 'A' && !(s.mandati || []).length) {
     segnalazioni.push({
       id: 'mandati',
       gravita: 'media',
       titolo: 'Nessun mandato diretto',
-      testo: 'In registro non ci sono mandati intestati a questa iscrizione.',
+      testo: 'Per un agente ci si aspetta almeno un mandato: in registro non ce ne sono intestati a questa iscrizione.',
       voci: [],
     });
   }
@@ -488,7 +488,7 @@ export async function controlloRuiCliente(client, rui) {
       id: 'ok',
       gravita: 'info',
       titolo: 'Nessuna anomalia evidente',
-      testo: 'La rete A/B/E di questo estratto non mostra i controlli base in rosso.',
+      testo: 'Sedi, mandati e collaboratori della tua rete non mostrano problemi nel registro.',
       voci: [],
     });
   }

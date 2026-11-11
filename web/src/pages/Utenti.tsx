@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Check, KeyRound, Plus, Power, Trash2, X } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui";
 import { BadgeSezione, MessaggioStato, Tabella, type Colonna } from "@/components/Tabella";
 import { useApi, useDebounce } from "@/lib/useApi";
 import { postJson, qs, type IntermediarioLista, type Pagina } from "@/api";
+import { cn } from "@/lib/cn";
 
 type Operatore = {
   id: number;
@@ -33,19 +34,9 @@ type Creato = {
   operatore: { email: string; nome: string | null };
 };
 
-const COLONNE: Colonna<ClienteUtente>[] = [
-  { id: "nome", etichetta: "Società", cella: (r) => r.denominazione },
-  { id: "rui", etichetta: "RUI", cella: (r) => r.rui },
-  { id: "sez", etichetta: "Sez.", cella: (r) => <BadgeSezione sezione={r.sezione} /> },
-  {
-    id: "op",
-    etichetta: "Operatori",
-    cella: (r) =>
-      r.operatori.length
-        ? r.operatori.map((o) => o.email).join(" · ")
-        : "—",
-  },
-];
+type Riga = Operatore & { societa: string; rui: string; sezione: string | null };
+
+type Conferma = { id: number; azione: "password" | "elimina" } | null;
 
 export function UtentiPage() {
   const [tick, setTick] = useState(0);
@@ -57,7 +48,8 @@ export function UtentiPage() {
   const [nome, setNome] = useState("");
   const [inCorso, setInCorso] = useState(false);
   const [erroreAzione, setErroreAzione] = useState<string | null>(null);
-  const [creato, setCreato] = useState<Creato | null>(null);
+  const [messaggio, setMessaggio] = useState<string | null>(null);
+  const [conferma, setConferma] = useState<Conferma>(null);
 
   const { data: trovati } = useApi<Pagina<IntermediarioLista, unknown>>(
     !scelto && cercaDebounced.trim().length >= 2
@@ -67,56 +59,155 @@ export function UtentiPage() {
   const candidati = (trovati?.items ?? []).filter((i) => i.sezione === "A" || i.sezione === "B");
   const password = data?.password_default || "Leone123!";
 
-  async function crea() {
-    if (!scelto || !email.trim()) return;
+  const righe: Riga[] = (data?.utenti ?? []).flatMap((c) =>
+    c.operatori.map((o) => ({ ...o, societa: c.denominazione, rui: c.rui, sezione: c.sezione })),
+  );
+
+  async function azione(fn: () => Promise<string>) {
     setErroreAzione(null);
-    setCreato(null);
+    setMessaggio(null);
     setInCorso(true);
     try {
+      setMessaggio(await fn());
+      setConferma(null);
+      setTick((n) => n + 1);
+    } catch (err) {
+      setErroreAzione(err instanceof Error ? err.message : "operazione non riuscita");
+    } finally {
+      setInCorso(false);
+    }
+  }
+
+  function crea() {
+    if (!scelto || !email.trim()) return;
+    void azione(async () => {
       const out = await postJson<Creato>("/api/admin/utenti", {
         rui: scelto.numero_iscrizione_rui,
         email: email.trim(),
         nome: nome.trim() || undefined,
       });
-      setCreato(out);
       setEmail("");
       setNome("");
       setScelto(null);
       setCerca("");
-      setTick((n) => n + 1);
-    } catch (err) {
-      setErroreAzione(err instanceof Error ? err.message : "creazione non riuscita");
-    } finally {
-      setInCorso(false);
-    }
+      return `Accesso creato per ${out.operatore.email} (${out.cliente.denominazione}). Password: ${out.password}`;
+    });
   }
 
-  async function reimposta(indirizzo: string) {
-    setErroreAzione(null);
-    setInCorso(true);
-    try {
-      const out = await postJson<Creato>("/api/admin/utenti/password", { email: indirizzo });
-      setCreato({
-        ok: true,
-        password: out.password,
-        cliente: { rui: "", denominazione: "" },
-        operatore: { email: indirizzo, nome: null },
-      });
-    } catch (err) {
-      setErroreAzione(err instanceof Error ? err.message : "reset non riuscito");
-    } finally {
-      setInCorso(false);
-    }
-  }
+  const colonne: Colonna<Riga>[] = [
+    {
+      id: "op",
+      etichetta: "Operatore",
+      cella: (r) => (
+        <div className="min-w-0">
+          <p className="font-semibold">{r.email}</p>
+          {r.nome ? <p className="text-xs text-muted-foreground">{r.nome}</p> : null}
+        </div>
+      ),
+    },
+    {
+      id: "soc",
+      etichetta: "Società",
+      cella: (r) => (
+        <div className="flex items-center gap-2">
+          <BadgeSezione sezione={r.sezione} />
+          <span>
+            {r.societa} <span className="text-muted-foreground">· {r.rui}</span>
+          </span>
+        </div>
+      ),
+    },
+    {
+      id: "stato",
+      etichetta: "Accesso",
+      cella: (r) => (
+        <span
+          className={cn(
+            "inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
+            r.attivo ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground",
+          )}
+        >
+          {r.attivo ? "Attivo" : "Disattivato"}
+        </span>
+      ),
+    },
+    {
+      id: "azioni",
+      etichetta: "",
+      classe: "text-right",
+      cella: (r) =>
+        conferma?.id === r.id ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="text-xs font-semibold">
+              {conferma.azione === "elimina" ? "Eliminare questo accesso?" : `Reimpostare la password a ${password}?`}
+            </span>
+            <Button
+              size="sm"
+              variant={conferma.azione === "elimina" ? "outline" : "default"}
+              className={conferma.azione === "elimina" ? "border-destructive text-destructive" : undefined}
+              disabled={inCorso}
+              onClick={() =>
+                void azione(async () => {
+                  if (conferma.azione === "elimina") {
+                    await postJson("/api/admin/utenti/elimina", { id: r.id });
+                    return `Accesso di ${r.email} eliminato. I dati della società restano.`;
+                  }
+                  const out = await postJson<{ password: string }>("/api/admin/utenti/password", { email: r.email });
+                  return `Password di ${r.email} reimpostata a ${out.password}.`;
+                })
+              }
+            >
+              <Check className="h-4 w-4" />
+              Sì
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setConferma(null)} disabled={inCorso}>
+              <X className="h-4 w-4" />
+              No
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="outline" disabled={inCorso} onClick={() => setConferma({ id: r.id, azione: "password" })}>
+              <KeyRound className="h-4 w-4" />
+              Reimposta password
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={inCorso}
+              onClick={() =>
+                void azione(async () => {
+                  await postJson("/api/admin/utenti/stato", { id: r.id, attivo: !r.attivo });
+                  return r.attivo ? `Accesso di ${r.email} disattivato.` : `Accesso di ${r.email} riattivato.`;
+                })
+              }
+            >
+              <Power className="h-4 w-4" />
+              {r.attivo ? "Disattiva" : "Riattiva"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-destructive hover:bg-destructive/10"
+              aria-label={`Elimina l'accesso di ${r.email}`}
+              disabled={inCorso}
+              onClick={() => setConferma({ id: r.id, azione: "elimina" })}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
       <MessaggioStato errore={errore} />
       <Card>
-        <p className="text-sm font-semibold">Nuovo utente cliente</p>
+        <h3 className="text-lg font-bold">Nuovo accesso cliente</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Scegli una società A o B, indica l’email dell’operatore. La password è sempre{" "}
-          <span className="font-semibold text-foreground">{password}</span>, assegnata in automatico.
+          Scegli la società (agente o broker) e l’email di chi entrerà. La password iniziale è{" "}
+          <span className="font-semibold text-foreground">{password}</span>: comunicala al cliente.
         </p>
         <div className="relative mt-4 max-w-xl">
           <Input
@@ -125,12 +216,13 @@ export function UtentiPage() {
               setScelto(null);
               setCerca(e.target.value);
             }}
-            placeholder="Cerca società per nome o RUI"
+            placeholder="Cerca la società per nome o RUI"
+            aria-label="Società cliente"
           />
           {!scelto && cercaDebounced.trim().length >= 2 ? (
             <div className="absolute z-10 mt-2 w-full overflow-hidden rounded-2xl border border-border bg-card shadow-card">
               {candidati.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-muted-foreground">Nessuna iscrizione A/B.</p>
+                <p className="px-4 py-3 text-sm text-muted-foreground">Nessun agente o broker trovato.</p>
               ) : (
                 candidati.map((i) => (
                   <button
@@ -153,56 +245,43 @@ export function UtentiPage() {
             </div>
           ) : null}
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 max-w-xl">
+        <div className="mt-4 grid max-w-xl gap-3 sm:grid-cols-2">
           <Input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email operatore"
+            placeholder="Email dell'operatore"
+            aria-label="Email dell'operatore"
           />
           <Input
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             placeholder="Nome (facoltativo)"
+            aria-label="Nome dell'operatore"
           />
         </div>
         <div className="mt-4">
-          <Button disabled={inCorso || !scelto || !email.trim()} onClick={() => void crea()}>
-            Crea utente
+          <Button disabled={inCorso || !scelto || !email.trim()} onClick={crea}>
+            Crea accesso
           </Button>
         </div>
-        {erroreAzione ? <p className="mt-3 text-sm text-destructive">{erroreAzione}</p> : null}
-        {creato ? (
-          <p className="mt-3 text-sm">
-            Pronto: <span className="font-semibold">{creato.operatore.email}</span>
-            {creato.cliente.denominazione ? ` · ${creato.cliente.denominazione}` : ""}
-            {" · password "}
-            <span className="font-semibold">{creato.password}</span>
-          </p>
-        ) : null}
       </Card>
 
+      {erroreAzione ? (
+        <p className="text-sm text-destructive" role="alert">
+          {erroreAzione}
+        </p>
+      ) : null}
+      {messaggio ? (
+        <p className="rounded-2xl bg-primary/10 px-4 py-3 text-sm" role="status">
+          {messaggio}
+        </p>
+      ) : null}
+
       <Tabella
-        colonne={[
-          ...COLONNE,
-          {
-            id: "reset",
-            etichetta: "",
-            cella: (r) =>
-              r.operatori[0] ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={inCorso}
-                  onClick={() => void reimposta(r.operatori[0].email)}
-                >
-                  Password {password}
-                </Button>
-              ) : null,
-          },
-        ]}
-        righe={data?.utenti ?? []}
-        vuoto="Nessun utente cliente. Creane uno sopra."
+        colonne={colonne}
+        righe={righe}
+        vuoto="Nessun accesso cliente. Creane uno qui sopra."
         chiave={(r) => String(r.id)}
         caricamento={caricamento}
       />

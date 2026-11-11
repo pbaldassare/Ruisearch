@@ -17,6 +17,7 @@ import { Button, Card, Input } from "@/components/ui";
 import { useApi } from "@/lib/useApi";
 import { formatNumero } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { BadgeSezione, BadgeStato } from "@/components/Tabella";
 
 type Dimensione = { id: string; etichetta: string; valori: string[]; esempio: string };
 
@@ -31,8 +32,14 @@ type RispostaDomanda = {
   valore?: string | number;
   numeri?: { intermediari: number; collaborazioni: number; mandati: number; sedi: number };
   scelto?: { numero_iscrizione_rui: string; denominazione: string; sezione: string };
-  candidati?: Array<{ numero_iscrizione_rui: string; denominazione: string }>;
-  risultati?: Array<{ numero_iscrizione_rui: string; denominazione: string; sezione: string }>;
+  candidati?: Array<{ numero_iscrizione_rui: string; denominazione: string; sezione?: string }>;
+  risultati?: Array<{
+    numero_iscrizione_rui: string;
+    denominazione: string;
+    sezione: string;
+    inoperativo?: boolean | null;
+  }>;
+  totale?: number;
   tramite_principali?: Array<{ denominazione: string; rui: string; ragione_sociale: string; sezione: string }>;
   mandati_propri?: Array<{ ragione_sociale: string }>;
   si?: boolean;
@@ -64,12 +71,20 @@ const ICONE_CATEGORIA: Record<string, LucideIcon> = {
   altro: Sparkles,
 };
 
-const ESEMPI = [
+const ESEMPI_BASE = [
   "quanti intermediari ha consulbrokers",
-  "quanti mandati ha consulbrokers spa",
-  "paolo baldassare lavora con gli agenti con axa",
-  "paolo baldassare lavora con axa",
+  "agenti con mandato axa in provincia di BS",
+  "broker a Milano",
+  "agenti inoperativi in provincia di TO",
 ];
+
+const TIPO: Record<string, string> = {
+  conteggio: "Conteggio",
+  compagnia: "Rapporto con una compagnia",
+  compagnia_agenti: "Agenti con una compagnia",
+  elenco: "Elenco filtrato",
+  cerca: "Ricerca per nome",
+};
 
 export function QueryPage() {
   const { data: catalogo } = useApi<{ dimensioni: Dimensione[]; esempi: string[] }>("/api/dimensioni");
@@ -107,7 +122,8 @@ export function QueryPage() {
           <Input
             value={testo}
             onChange={(e) => setTesto(e.target.value)}
-            placeholder="quanti intermediari ha consulbrokers"
+            placeholder="Es. agenti con mandato axa in provincia di BS"
+            aria-label="Domanda sul registro"
           />
           <Button type="submit" disabled={inCorso}>
             <MessageSquare className="h-4 w-4" />
@@ -115,7 +131,7 @@ export function QueryPage() {
           </Button>
         </form>
         <div className="mt-4 flex flex-wrap gap-2">
-          {ESEMPI.map((es) => (
+          {(catalogo?.esempi?.length ? catalogo.esempi : ESEMPI_BASE).map((es) => (
             <button
               key={es}
               type="button"
@@ -144,13 +160,22 @@ export function QueryPage() {
       ) : null}
 
       <Card>
-        <h3 className="mb-3 text-lg font-bold">Caratteristiche interrogabili</h3>
+        <h3 className="text-lg font-bold">Cosa puoi chiedere</h3>
+        <p className="mb-4 mt-1 text-sm text-muted-foreground">
+          Combina liberamente questi filtri nella stessa frase. Clicca un esempio per provarlo.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           {(catalogo?.dimensioni ?? []).map((d) => (
             <div key={d.id}>
               <p className="text-sm font-semibold">{d.etichetta}</p>
               <p className="text-xs text-muted-foreground">{d.valori.join(" · ")}</p>
-              <p className="text-xs text-muted-foreground">es. {d.esempio}</p>
+              <button
+                type="button"
+                className="mt-0.5 text-left text-xs text-primary hover:underline"
+                onClick={() => void invia(undefined, d.esempio)}
+              >
+                es. {d.esempio}
+              </button>
             </div>
           ))}
         </div>
@@ -163,7 +188,9 @@ function Risultato({ domanda }: { domanda: RispostaDomanda }) {
   const s = domanda.scelto;
   return (
     <Card>
-      <p className="text-xs uppercase text-muted-foreground">{domanda.tipo}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {TIPO[domanda.tipo] ?? domanda.tipo}
+      </p>
       {domanda.risposta ? <p className="mt-2 text-lg font-semibold">{domanda.risposta}</p> : null}
       {domanda.errore ? <p className="mt-2 text-destructive">{domanda.errore}</p> : null}
       {domanda.nota ? <p className="mt-2 text-sm text-muted-foreground">{domanda.nota}</p> : null}
@@ -174,6 +201,19 @@ function Risultato({ domanda }: { domanda: RispostaDomanda }) {
             {s.denominazione}
           </Link>{" "}
           · {s.numero_iscrizione_rui} · sez. {s.sezione}
+        </p>
+      ) : null}
+      {domanda.candidati && domanda.candidati.length > 1 ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Non era lui? Forse cercavi:{" "}
+          {domanda.candidati.slice(1, 6).map((c, i) => (
+            <span key={c.numero_iscrizione_rui}>
+              {i > 0 ? ", " : ""}
+              <Link className="text-primary hover:underline" to={`/app/intermediari/${c.numero_iscrizione_rui}`}>
+                {c.denominazione}
+              </Link>
+            </span>
+          ))}
         </p>
       ) : null}
       {domanda.valore != null ? (
@@ -201,13 +241,15 @@ function Risultato({ domanda }: { domanda: RispostaDomanda }) {
         </ul>
       ) : null}
       {domanda.risultati && domanda.risultati.length > 0 ? (
-        <ul className="mt-3 space-y-1 text-sm">
+        <ul className="mt-4 divide-y divide-border text-sm">
           {domanda.risultati.map((r) => (
-            <li key={r.numero_iscrizione_rui}>
-              <Link className="text-primary hover:underline" to={`/app/intermediari/${r.numero_iscrizione_rui}`}>
+            <li key={r.numero_iscrizione_rui} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-2">
+              <Link className="font-semibold text-primary hover:underline" to={`/app/intermediari/${r.numero_iscrizione_rui}`}>
                 {r.denominazione}
-              </Link>{" "}
-              · {r.numero_iscrizione_rui}
+              </Link>
+              <span className="text-muted-foreground">{r.numero_iscrizione_rui}</span>
+              <BadgeSezione sezione={r.sezione} />
+              {r.inoperativo != null ? <BadgeStato inoperativo={r.inoperativo} /> : null}
             </li>
           ))}
         </ul>

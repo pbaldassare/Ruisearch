@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Button, Card, Input } from "@/components/ui";
 import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from "@/components/Tabella";
 import { useAuth } from "@/auth/AuthContext";
@@ -47,24 +47,25 @@ const COLONNE_RETE: Colonna<IntermediarioRete>[] = [
 ];
 
 function etichettaRicerca(r: RicercaSalvata) {
-  return [r.frase || [r.zona, r.compagnia].filter(Boolean).join(" · "), `${r.n} nominativi`]
-    .filter(Boolean)
-    .join(" · ");
+  return r.frase || [r.zona, r.compagnia].filter(Boolean).join(" · ") || "Ricerca";
 }
 
 export function IntermediariClientePage() {
   const { cliente } = useAuth();
-  const [vista, setVista] = useState<"rete" | "mercato">("mercato");
+  const [parametri] = useSearchParams();
+  const [vista, setVista] = useState<"rete" | "mercato">(parametri.get("vista") === "rete" ? "rete" : "mercato");
   const { data, errore, caricamento } = useApi<Estratto>(
     cliente ? `/api/cliente/estratto${qs({ rui: cliente.rui })}` : null,
   );
   const [filtroRete, setFiltroRete] = useState("");
-  const [frase, setFrase] = useState("broker su Roma con Allianz");
-  const [zona, setZona] = useState("Roma");
-  const [compagnia, setCompagnia] = useState("Allianz");
+  const [frase, setFrase] = useState("");
+  const [zona, setZona] = useState("");
+  const [compagnia, setCompagnia] = useState("");
   const [sezione, setSezione] = useState("");
   const [notaRicerca, setNotaRicerca] = useState<string | null>(null);
-  const [risultati, setRisultati] = useState<VoceMercato[]>([]);
+  // null = nessuna ricerca ancora fatta: niente tabella vuota con "nessun risultato".
+  const [risultati, setRisultati] = useState<VoceMercato[] | null>(null);
+  const [totale, setTotale] = useState<number | null>(null);
   const [ricerche, setRicerche] = useState<RicercaSalvata[]>([]);
   const [ricercaAttiva, setRicercaAttiva] = useState<string | number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -90,8 +91,9 @@ export function IntermediariClientePage() {
       setRicerche(out.ricerche || []);
       if (out.items?.length) {
         setRisultati(out.items);
+        setTotale(null);
         setRicercaAttiva(out.ricerca?.id ?? null);
-        setNotaRicerca(out.ricerca?.nota || "Ultima ricerca già in archivio.");
+        setNotaRicerca(out.ricerca?.nota || "Ti mostro l'ultima ricerca che hai fatto.");
         if (out.ricerca?.zona) setZona(out.ricerca.zona);
         if (out.ricerca?.compagnia) setCompagnia(out.ricerca.compagnia);
         if (out.ricerca?.frase) setFrase(out.ricerca.frase);
@@ -108,6 +110,7 @@ export function IntermediariClientePage() {
     try {
       const out = await getJson<{
         items: VoceMercato[];
+        totale?: number;
         nota?: string | null;
         ricerca_id?: number | string | null;
         filtri?: { zona?: string | null; compagnia?: string | null; sezione?: string[] };
@@ -115,7 +118,8 @@ export function IntermediariClientePage() {
         `/api/cliente/mercato${qs({ q: frase, zona, compagnia, sezione, limit: 40, rui: cliente.rui })}`,
       );
       setRisultati(out.items || []);
-      setNotaRicerca(out.nota || "Ricerca salvata. Stessi filtri non creano doppioni.");
+      setTotale(out.totale ?? null);
+      setNotaRicerca(out.nota || null);
       setRicercaAttiva(out.ricerca_id ?? null);
       if (out.filtri?.zona) setZona(out.filtri.zona);
       if (out.filtri?.compagnia) setCompagnia(out.filtri.compagnia);
@@ -139,8 +143,9 @@ export function IntermediariClientePage() {
         `/api/cliente/mercato/storico${qs({ rui: cliente.rui, id })}`,
       );
       setRisultati(out.items || []);
+      setTotale(null);
       setRicercaAttiva(out.ricerca?.id ?? id);
-      setNotaRicerca(out.ricerca?.nota || "Ricerca già salvata, niente doppioni.");
+      setNotaRicerca(out.ricerca?.nota || null);
       if (out.ricerca?.zona) setZona(out.ricerca.zona);
       if (out.ricerca?.compagnia) setCompagnia(out.ricerca.compagnia);
       if (out.ricerca?.frase) setFrase(out.ricerca.frase);
@@ -158,13 +163,13 @@ export function IntermediariClientePage() {
     { id: "rui", etichetta: "RUI", cella: (r) => r.rui },
     { id: "sez", etichetta: "Sez.", cella: (r) => <BadgeSezione sezione={r.sezione} /> },
     { id: "zona", etichetta: "Zona", cella: (r) => [r.comuni, r.province].filter(Boolean).join(" · ") || "—" },
-    { id: "sub", etichetta: "Sub-agenti", cella: (r) => String(r.subagenti) },
+    { id: "sub", etichetta: "Collaboratori", classe: "text-right", cella: (r) => String(r.subagenti) },
     {
       id: "az",
       etichetta: "",
       cella: (r) => (
         <Link
-          className="inline-flex h-9 items-center rounded-full border border-border bg-card px-4 text-sm font-semibold hover:bg-secondary"
+          className="inline-flex h-9 items-center whitespace-nowrap rounded-full border border-border bg-card px-4 text-sm font-semibold hover:bg-secondary"
           to={`/cliente/intermediari/${encodeURIComponent(r.rui)}${linkRete}`}
         >
           Apri rete
@@ -200,36 +205,59 @@ export function IntermediariClientePage() {
         <>
           <Card>
             <p className="text-sm text-muted-foreground">
-              Cerca broker e agenti per zona o mandato. «Apri rete» apre la pagina dei sub-agenti. Ogni ricerca resta in database: stessi filtri non creano doppioni.
+              Trova agenti e broker per zona e compagnia. Con «Apri rete» vedi i loro collaboratori. Le ricerche che
+              fai restano qui sotto, pronte da riaprire.
             </p>
-            <div className="mt-4">
-              <Input
-                value={frase}
-                onChange={(e) => setFrase(e.target.value)}
-                placeholder="broker su Roma con Allianz"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void cerca();
-                }}
-              />
-            </div>
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
-              <Input value={zona} onChange={(e) => setZona(e.target.value)} placeholder="Zona, es. Roma o RM" />
-              <Input value={compagnia} onChange={(e) => setCompagnia(e.target.value)} placeholder="Compagnia, es. Allianz" />
-              <select
-                className="h-11 rounded-full border border-input bg-card px-4 text-sm"
-                value={sezione}
-                onChange={(e) => setSezione(e.target.value)}
-              >
-                <option value="">Broker e agenti</option>
-                <option value="B">Solo broker (B)</option>
-                <option value="A">Solo agenti (A)</option>
-              </select>
-            </div>
-            <div className="mt-4">
-              <Button type="button" disabled={Boolean(busy)} onClick={() => void cerca()}>
-                {busy === "cerca" ? "Cerco…" : "Cerca"}
-              </Button>
-            </div>
+            <form
+              className="mt-4"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void cerca();
+              }}
+            >
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Input
+                  value={zona}
+                  onChange={(e) => setZona(e.target.value)}
+                  placeholder="Zona, es. Roma o RM"
+                  aria-label="Zona"
+                />
+                <Input
+                  value={compagnia}
+                  onChange={(e) => setCompagnia(e.target.value)}
+                  placeholder="Compagnia, es. Allianz"
+                  aria-label="Compagnia"
+                />
+                <select
+                  className="h-11 rounded-full border border-input bg-card px-4 text-sm"
+                  value={sezione}
+                  onChange={(e) => setSezione(e.target.value)}
+                  aria-label="Tipo di intermediario"
+                >
+                  <option value="">Broker e agenti</option>
+                  <option value="B">Solo broker (B)</option>
+                  <option value="A">Solo agenti (A)</option>
+                </select>
+              </div>
+              <details className="mt-3 text-sm">
+                <summary className="cursor-pointer font-semibold text-primary">Oppure scrivilo in una frase</summary>
+                <Input
+                  className="mt-2"
+                  value={frase}
+                  onChange={(e) => setFrase(e.target.value)}
+                  placeholder="es. agenti a Brescia con Generali"
+                  aria-label="Ricerca in una frase"
+                />
+              </details>
+              <div className="mt-4">
+                <Button
+                  type="submit"
+                  disabled={Boolean(busy) || !(zona.trim() || compagnia.trim() || frase.trim())}
+                >
+                  {busy === "cerca" ? "Cerco…" : "Cerca"}
+                </Button>
+              </div>
+            </form>
           </Card>
           {ricerche.length ? (
             <div className="flex flex-wrap gap-2">
@@ -248,14 +276,29 @@ export function IntermediariClientePage() {
             </div>
           ) : null}
           {erroreAzione ? <p className="text-sm text-destructive">{erroreAzione}</p> : null}
+          {risultati && totale != null && busy !== "cerca" ? (
+            <p className="text-sm text-muted-foreground">
+              <span className="font-semibold text-foreground">{totale.toLocaleString("it-IT")}</span>{" "}
+              {totale === 1 ? "intermediario trovato" : "intermediari trovati"}
+              {totale > risultati.length ? ` · ti mostro i primi ${risultati.length}: restringi zona o compagnia per vederne altri` : ""}
+            </p>
+          ) : null}
           {notaRicerca ? <p className="text-sm text-muted-foreground">{notaRicerca}</p> : null}
-          <Tabella
-            colonne={colonneMercato}
-            righe={risultati}
-            vuoto="Nessun intermediario per questi filtri. Prova zona o compagnia."
-            chiave={(r) => r.rui}
-            caricamento={busy === "cerca" || Boolean(busy?.startsWith("storico"))}
-          />
+          {risultati || busy ? (
+            <Tabella
+              colonne={colonneMercato}
+              righe={risultati ?? []}
+              vuoto="Nessun intermediario con questi filtri. Prova una zona più ampia o un'altra compagnia."
+              chiave={(r) => r.rui}
+              caricamento={busy === "cerca" || Boolean(busy?.startsWith("storico"))}
+            />
+          ) : (
+            <Card>
+              <p className="text-sm text-muted-foreground">
+                Inserisci una zona, una compagnia o entrambe e premi <span className="font-semibold">Cerca</span>.
+              </p>
+            </Card>
+          )}
         </>
       )}
     </div>
