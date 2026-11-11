@@ -5,37 +5,37 @@ export const DIMENSIONI = [
     id: 'sezione',
     etichetta: 'Sezione RUI',
     valori: ['A', 'B', 'E'],
-    esempio: 'solo agenti sezione A',
+    esempio: 'agenti in provincia di BS',
   },
   {
     id: 'natura',
     etichetta: 'Natura giuridica',
     valori: ['azienda', 'persona'],
-    esempio: 'quante aziende ha la rete',
+    esempio: 'aziende con mandato generali',
   },
   {
     id: 'stato_operativo',
     etichetta: 'Stato',
     valori: ['operativo', 'inoperativo'],
-    esempio: 'solo operativi',
+    esempio: 'agenti inoperativi in provincia di TO',
   },
   {
     id: 'compagnia',
     etichetta: 'Compagnia / mandato',
     valori: ['AXA', 'Generali', 'Unipol', 'Allianz', '...'],
-    esempio: 'lavora con AXA',
+    esempio: 'agenti con mandato axa in provincia di MI',
   },
   {
     id: 'ruolo_rete',
     etichetta: 'Ruolo in rete',
     valori: ['principale', 'collaboratore', 'agente'],
-    esempio: 'agenti con cui collabora',
+    esempio: 'quanti collaboratori ha consulbrokers spa',
   },
   {
     id: 'provincia_sede',
     etichetta: 'Provincia sede',
     valori: ['BS', 'MI', 'RM', '...'],
-    esempio: 'sedi in provincia di BS',
+    esempio: 'broker in provincia di RM',
   },
   {
     id: 'denominazione',
@@ -53,8 +53,7 @@ export const DIMENSIONI = [
 
 export const ESEMPI_DOMANDA = [
   'quanti intermediari ha consulbrokers',
-  'quanti mandati ha consulbrokers spa',
-  'paolo baldassare lavora con gli agenti con axa',
-  'paolo baldassare lavora con axa',
-  'cerca baldassare',
+  'agenti con mandato axa in provincia di BS',
+  'broker a Milano',
+  'agenti inoperativi in provincia di TO',
 ];

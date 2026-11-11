@@ -40,9 +40,12 @@ export function buildConnectionString() {
 
   if (mode === 'pooler') {
     const region = (process.env.SUPABASE_REGION || 'eu-west-1').trim();
+    // I progetti recenti stanno sul cluster aws-1, quelli vecchi su aws-0:
+    // il valore giusto e' in Dashboard > Connect > Session pooler.
+    const cluster = (process.env.SUPABASE_POOLER_CLUSTER || 'aws-1').trim();
     // Session mode sulla 5432: a differenza della 6543 supporta COPY e
     // transazioni lunghe, che servono al caricamento massivo.
-    return `postgresql://postgres.${ref}:${secret}@aws-0-${region}.pooler.supabase.com:5432/postgres`;
+    return `postgresql://postgres.${ref}:${secret}@${cluster}-${region}.pooler.supabase.com:5432/postgres`;
   }
 
   if (mode !== 'direct') {

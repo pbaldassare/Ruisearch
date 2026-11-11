@@ -1,5 +1,10 @@
 // Lettura del registro gia' importato. Solo SELECT.
 // Teniamo A, B, E. Un arco di rete resta solo se entrambi gli estremi sono A/B/E.
+//
+// Ogni query verso Supabase costa un viaggio di rete (~65 ms): le query
+// indipendenti partono insieme sul pool invece che una dopo l'altra.
+
+import { getPool } from './db.js';
 
 export const SEZIONI_ATTIVE = Object.freeze(['A', 'B', 'E']);
 
@@ -36,17 +41,21 @@ function manca(rui) {
   throw errore;
 }
 
-function anagCte() {
+/**
+ * Anagrafica di un RUI collegato, una riga sola (il numero non e' univoco
+ * nella fonte: vince l'iscrizione operativa). Va usata con LATERAL: cerca
+ * solo i RUI che servono invece di rileggere tutti i 226.000 iscritti.
+ */
+function anagLaterale(alias, colonnaRui, { obbligatoria = true } = {}) {
   return `
-    anag as (
-      select distinct on (numero_iscrizione_rui)
-        numero_iscrizione_rui, oss, sezione, denominazione,
-        data_iscrizione, inoperativo, persona_giuridica,
-        comune_nascita, provincia_nascita
-      from intermediari
-      where sezione = any($1::text[])
-      order by numero_iscrizione_rui, inoperativo, oss
-    )`;
+    ${obbligatoria ? 'join' : 'left join'} lateral (
+      select x.numero_iscrizione_rui, x.sezione, x.denominazione, x.inoperativo
+      from intermediari x
+      where x.numero_iscrizione_rui = ${colonnaRui}
+        and x.sezione = any($1::text[])
+      order by x.inoperativo, x.oss
+      limit 1
+    ) ${alias} on true`;
 }
 
 /** KPI + ultimo import. I conteggi rispettano il filtro A/B/E. */
@@ -108,24 +117,46 @@ export async function storicoImport(client, { limite } = {}) {
   return rows;
 }
 
+// Righe massime di un export CSV: abbastanza per una provincia, non per tutto il registro.
+export const MASSIMO_EXPORT = 5000;
+
+function limitePagina(limite, esporta) {
+  return esporta ? MASSIMO_EXPORT : clamp(limite, 40, 80);
+}
+
 /**
- * Elenco / ricerca. RUI esatto, oppure ilike + trigram sul nome.
- * Paginazione keyset su (denominazione, oss).
+ * Esegue la pagina e, solo sulla prima, il conteggio totale: le due query
+ * partono insieme per non sommare i tempi di rete.
+ */
+async function paginaConTotale({ sql, conteggio, params, paramsConteggio, primaPagina }) {
+  const db = getPool();
+  const [righe, totale] = await Promise.all([
+    db.query(sql, params),
+    primaPagina ? db.query(conteggio, paramsConteggio) : Promise.resolve(null),
+  ]);
+  return { rows: righe.rows, totale: totale ? Number(totale.rows[0].n) : null };
+}
+
+/**
+ * Elenco / ricerca. RUI esatto, oppure nome: prima chi inizia con il testo,
+ * poi chi lo contiene, poi i nomi simili. Senza testo: ordine alfabetico con
+ * paginazione keyset su (denominazione, oss).
  */
 export async function cercaIntermediari(client, {
-  q, sezione, dopoNome, dopoOss, limite,
+  q, sezione, dopoNome, dopoOss, limite, esporta = false,
 } = {}) {
   const sezioni = sezioniRichieste(sezione);
-  const limit = clamp(limite, 40, 80);
+  const limit = limitePagina(limite, esporta);
   const testo = (q || '').trim();
   const params = [sezioni];
   const where = ['i.sezione = any($1::text[])'];
   let indiceTesto = null;
+  const rui = sembraRui(testo);
 
   if (testo) {
-    params.push(sembraRui(testo) ? normalizzaRui(testo) : testo);
+    params.push(rui ? normalizzaRui(testo) : testo);
     indiceTesto = params.length;
-    if (sembraRui(testo)) {
+    if (rui) {
       where.push(`i.numero_iscrizione_rui = $${indiceTesto}`);
     } else {
       where.push(`(
@@ -135,42 +166,47 @@ export async function cercaIntermediari(client, {
       )`);
     }
   }
+  const whereConteggio = [...where];
+  const paramsConteggio = [...params];
+  const perPertinenza = Boolean(indiceTesto && !rui);
 
-  if (dopoNome != null && dopoNome !== '' && dopoOss != null && dopoOss !== '') {
+  const cursore = dopoNome != null && dopoNome !== '' && dopoOss != null && dopoOss !== '';
+  if (cursore) {
     params.push(dopoNome, Number(dopoOss));
     where.push(`(i.denominazione, i.oss) > ($${params.length - 1}, $${params.length}::bigint)`);
   }
 
   params.push(limit + 1);
-  const order = indiceTesto && !sembraRui(testo)
-    ? `similarity(i.denominazione, $${indiceTesto}) desc, i.denominazione, i.oss`
+  const order = perPertinenza && !cursore
+    ? `(i.denominazione ilike $${indiceTesto} || '%') desc,
+       (i.denominazione ilike '%' || $${indiceTesto} || '%') desc,
+       similarity(i.denominazione, $${indiceTesto}) desc, i.denominazione, i.oss`
     : 'i.denominazione, i.oss';
 
-  const { rows } = await client.query(
-    `
-    select
-      i.oss,
-      i.numero_iscrizione_rui,
-      i.sezione,
-      i.denominazione,
-      i.data_iscrizione,
-      i.inoperativo,
-      i.persona_giuridica,
-      i.comune_nascita,
-      i.provincia_nascita
-    from intermediari i
-    where ${where.join('\n      and ')}
-    order by ${order}
-    limit $${params.length}
+  const { rows, totale } = await paginaConTotale({
+    sql: `
+      select
+        i.oss, i.numero_iscrizione_rui, i.sezione, i.denominazione, i.data_iscrizione,
+        i.inoperativo, i.persona_giuridica, i.comune_nascita, i.provincia_nascita
+      from intermediari i
+      where ${where.join('\n        and ')}
+      order by ${order}
+      limit $${params.length}
     `,
     params,
-  );
+    conteggio: `select count(*) as n from intermediari i where ${whereConteggio.join(' and ')}`,
+    paramsConteggio,
+    primaPagina: !cursore,
+  });
 
-  const hasMore = rows.length > limit;
-  const items = hasMore ? rows.slice(0, limit) : rows;
+  // Con un testo l'ordine e' per pertinenza: si mostrano i migliori risultati
+  // e il totale; per vederli tutti c'e' l'export. Niente pagine successive.
+  const hasMore = rows.length > limit && !perPertinenza;
+  const items = rows.slice(0, limit);
   const ultimo = items[items.length - 1];
   return {
     items,
+    totale,
     prossimo: hasMore && ultimo
       ? { dopo_nome: ultimo.denominazione, dopo_oss: String(ultimo.oss) }
       : null,
@@ -197,12 +233,12 @@ export async function anagrafica(client, rui, { sezione } = {}) {
 export async function rete(client, rui, { sezione } = {}) {
   const numero = normalizzaRui(rui);
   const sezioni = sezioniRichieste(sezione);
-  const soggetti = await anagrafica(client, numero, { sezione });
+  const db = getPool();
+  const soggetti = await anagrafica(db, numero, { sezione });
   if (soggetti.length === 0) manca(numero);
 
-  const principali = await client.query(
+  const [principali, collaboratori] = await Promise.all([db.query(
     `
-    with ${anagCte()}
     select
       r.livello,
       r.qualifica,
@@ -211,17 +247,14 @@ export async function rete(client, rui, { sezione } = {}) {
       i.sezione,
       i.inoperativo
     from rete_collegati r
-    join anag i on i.numero_iscrizione_rui = r.principale
+    ${anagLaterale('i', 'r.principale')}
     where r.collegato = $2
       and r.sezione_principale = any($1::text[])
     order by i.denominazione, r.principale
     `,
     [sezioni, numero],
-  );
-
-  const collaboratori = await client.query(
+  ), db.query(
     `
-    with ${anagCte()}
     select
       r.livello,
       r.qualifica,
@@ -230,13 +263,13 @@ export async function rete(client, rui, { sezione } = {}) {
       i.sezione,
       i.inoperativo
     from rete_collegati r
-    join anag i on i.numero_iscrizione_rui = r.collegato
+    ${anagLaterale('i', 'r.collegato')}
     where r.principale = $2
       and r.sezione_collegato = any($1::text[])
     order by i.denominazione, r.collegato
     `,
     [sezioni, numero],
-  );
+  )]);
 
   const nodiMap = new Map();
   const centro = soggetti[0];
@@ -298,70 +331,68 @@ export async function rete(client, rui, { sezione } = {}) {
 export async function scheda(client, rui, { sezione, geocodifica = true } = {}) {
   const numero = normalizzaRui(rui);
   const sezioni = sezioniRichieste(sezione);
-  const soggetti = await anagrafica(client, numero, { sezione });
+  const db = getPool();
+  const soggetti = await anagrafica(db, numero, { sezione });
   if (soggetti.length === 0) manca(numero);
-
-  const sedi = await client.query(
-    `
-    select oss, tipo_sede, comune_sede, provincia_sede, cap_sede, indirizzo_sede
-    from sedi
-    where numero_iscrizione_int = $1
-    order by tipo_sede, comune_sede
-    `,
-    [numero],
-  );
-  const siti = await client.query(
-    `select web_url from siti_internet where numero_iscrizione = $1 order by web_url`,
-    [numero],
-  );
-  const mandati = await client.query(
-    `
-    select codice_compagnia, ragione_sociale
-    from mandati
-    where matricola = $1
-    order by ragione_sociale
-    `,
-    [numero],
-  );
-  const cariche = await client.query(
-    `
-    with ${anagCte()}
-    select
-      c.qualifica_intermediario as qualifica,
-      c.responsabile,
-      c.numero_iscrizione_rui_pf as persona_rui,
-      pf.denominazione as persona,
-      c.numero_iscrizione_rui_pg as societa_rui,
-      pg.denominazione as societa
-    from cariche c
-    left join anag pf on pf.numero_iscrizione_rui = c.numero_iscrizione_rui_pf
-    left join anag pg on pg.numero_iscrizione_rui = c.numero_iscrizione_rui_pg
-    where c.numero_iscrizione_rui_pg = $2
-       or c.numero_iscrizione_rui_pf = $2
-    order by pg.denominazione, pf.denominazione
-    `,
-    [sezioni, numero],
-  );
-  const contatti = await client.query(
-    `
-    select tipo, valore, etichetta, affidabilita, fonte, fonte_url
-    from contatti
-    where numero_iscrizione_rui = $1
-    order by tipo, valore
-    `,
-    [numero],
-  );
-  const reteSoggetto = await rete(client, numero, { sezione });
-  const numeri = await numeriDi(client, numero);
   const soggetto = soggetti[0];
-  const mandatiEreditati = soggetto.sezione === 'E' || !soggetto.persona_giuridica
-    ? await mandatiViaPrincipali(client, numero)
-    : [];
+  const conEreditati = soggetto.sezione === 'E' || !soggetto.persona_giuridica;
+
+  const [sedi, siti, mandati, cariche, contatti, reteSoggetto, numeri, mandatiEreditati] = await Promise.all([
+    db.query(
+      `
+      select oss, tipo_sede, comune_sede, provincia_sede, cap_sede, indirizzo_sede
+      from sedi
+      where numero_iscrizione_int = $1
+      order by tipo_sede, comune_sede
+      `,
+      [numero],
+    ),
+    db.query(`select web_url from siti_internet where numero_iscrizione = $1 order by web_url`, [numero]),
+    db.query(
+      `
+      select codice_compagnia, ragione_sociale
+      from mandati
+      where matricola = $1
+      order by ragione_sociale
+      `,
+      [numero],
+    ),
+    db.query(
+      `
+      select
+        c.qualifica_intermediario as qualifica,
+        c.responsabile,
+        c.numero_iscrizione_rui_pf as persona_rui,
+        pf.denominazione as persona,
+        c.numero_iscrizione_rui_pg as societa_rui,
+        pg.denominazione as societa
+      from cariche c
+      ${anagLaterale('pf', 'c.numero_iscrizione_rui_pf', { obbligatoria: false })}
+      ${anagLaterale('pg', 'c.numero_iscrizione_rui_pg', { obbligatoria: false })}
+      where c.numero_iscrizione_rui_pg = $2
+         or c.numero_iscrizione_rui_pf = $2
+      order by pg.denominazione, pf.denominazione
+      `,
+      [sezioni, numero],
+    ),
+    db.query(
+      `
+      select tipo, valore, etichetta, affidabilita, fonte, fonte_url
+      from contatti
+      where numero_iscrizione_rui = $1
+      order by tipo, valore
+      `,
+      [numero],
+    ),
+    rete(db, numero, { sezione }),
+    numeriDi(db, numero),
+    conEreditati ? mandatiViaPrincipali(db, numero) : Promise.resolve([]),
+  ]);
 
   let mappa = [];
   if (geocodifica && soggetto.persona_giuridica && sedi.rows.length > 0) {
     const { puntiSedi } = await import('./geo.js');
-    mappa = await puntiSedi(client, numero, sedi.rows, { geocodifica: true });
+    mappa = await puntiSedi(db, numero, sedi.rows, { geocodifica: true });
   }
 
   return {
@@ -423,142 +454,135 @@ export async function mandatiViaPrincipali(client, rui) {
   return rows;
 }
 
+function filtroElenco({ q, sezione, dopoOss, limite, esporta }, campi) {
+  const sezioni = sezioniRichieste(sezione);
+  const params = [sezioni];
+  const where = [...campi.base];
+  if (q) {
+    params.push(String(q).trim());
+    where.push(campi.testo(params.length));
+  }
+  const whereConteggio = [...where];
+  const paramsConteggio = [...params];
+  const cursore = dopoOss != null && dopoOss !== '';
+  if (cursore) {
+    params.push(Number(dopoOss));
+    where.push(`${campi.oss} > $${params.length}::bigint`);
+  }
+  const limit = limitePagina(limite, esporta);
+  params.push(limit + 1);
+  return { params, where, whereConteggio, paramsConteggio, cursore, limit };
+}
+
 export async function elencoSedi(client, {
-  q, provincia, sezione, dopoOss, limite,
+  q, sezione, dopoOss, limite, esporta = false,
 } = {}) {
-  const sezioni = sezioniRichieste(sezione);
-  const limit = clamp(limite, 40, 80);
-  const params = [sezioni];
-  const where = ['i.sezione = any($1::text[])'];
-
-  if (provincia) {
-    params.push(String(provincia).trim().toUpperCase());
-    where.push(`s.provincia_sede = $${params.length}`);
-  }
-  if (q) {
-    params.push(String(q).trim());
-    where.push(`(
-      s.comune_sede ilike '%' || $${params.length} || '%'
-      or s.indirizzo_sede ilike '%' || $${params.length} || '%'
-      or i.denominazione ilike '%' || $${params.length} || '%'
-      or s.numero_iscrizione_int = upper($${params.length})
-    )`);
-  }
-  if (dopoOss != null && dopoOss !== '') {
-    params.push(Number(dopoOss));
-    where.push(`s.oss > $${params.length}::bigint`);
-  }
-  params.push(limit + 1);
-
-  const { rows } = await client.query(
-    `
-    select distinct on (s.oss)
-      s.oss,
-      s.numero_iscrizione_int as rui,
-      i.denominazione,
-      i.sezione,
-      s.tipo_sede,
-      s.comune_sede,
-      s.provincia_sede,
-      s.indirizzo_sede
+  const f = filtroElenco({ q, sezione, dopoOss, limite, esporta }, {
+    base: ['i.sezione = any($1::text[])'],
+    oss: 's.oss',
+    testo: (n) => `(
+      s.comune_sede ilike '%' || $${n} || '%'
+      or s.indirizzo_sede ilike '%' || $${n} || '%'
+      or i.denominazione ilike '%' || $${n} || '%'
+      or s.numero_iscrizione_int = upper($${n})
+      or s.provincia_sede = upper($${n})
+    )`,
+  });
+  const daJoin = `
     from sedi s
-    join intermediari i on i.numero_iscrizione_rui = s.numero_iscrizione_int
-    where ${where.join('\n      and ')}
-    order by s.oss, i.inoperativo
-    limit $${params.length}
+    join intermediari i on i.numero_iscrizione_rui = s.numero_iscrizione_int`;
+  const { rows, totale } = await paginaConTotale({
+    sql: `
+      select distinct on (s.oss)
+        s.oss, s.numero_iscrizione_int as rui, i.denominazione, i.sezione,
+        s.tipo_sede, s.comune_sede, s.provincia_sede, s.cap_sede, s.indirizzo_sede
+      ${daJoin}
+      where ${f.where.join(' and ')}
+      order by s.oss, i.inoperativo
+      limit $${f.params.length}
     `,
-    params,
-  );
-  return pagina(rows, limit, (r) => ({ dopo_oss: String(r.oss) }));
+    params: f.params,
+    conteggio: `select count(distinct s.oss) as n ${daJoin} where ${f.whereConteggio.join(' and ')}`,
+    paramsConteggio: f.paramsConteggio,
+    primaPagina: !f.cursore,
+  });
+  return { ...pagina(rows, f.limit, (r) => ({ dopo_oss: String(r.oss) })), totale };
 }
 
-export async function elencoMandati(client, { q, sezione, dopoOss, limite } = {}) {
-  const sezioni = sezioniRichieste(sezione);
-  const limit = clamp(limite, 40, 80);
-  const params = [sezioni];
-  const where = ['i.sezione = any($1::text[])'];
-
-  if (q) {
-    params.push(String(q).trim());
-    where.push(`(
-      m.ragione_sociale ilike '%' || $${params.length} || '%'
-      or m.codice_compagnia ilike '%' || $${params.length} || '%'
-      or i.denominazione ilike '%' || $${params.length} || '%'
-      or m.matricola = upper($${params.length})
-    )`);
-  }
-  if (dopoOss != null && dopoOss !== '') {
-    params.push(Number(dopoOss));
-    where.push(`m.oss > $${params.length}::bigint`);
-  }
-  params.push(limit + 1);
-
-  const { rows } = await client.query(
-    `
-    select distinct on (m.oss)
-      m.oss,
-      m.matricola as rui,
-      i.denominazione,
-      i.sezione,
-      m.codice_compagnia,
-      m.ragione_sociale
+export async function elencoMandati(client, {
+  q, sezione, dopoOss, limite, esporta = false,
+} = {}) {
+  const f = filtroElenco({ q, sezione, dopoOss, limite, esporta }, {
+    base: ['i.sezione = any($1::text[])'],
+    oss: 'm.oss',
+    testo: (n) => `(
+      m.ragione_sociale ilike '%' || $${n} || '%'
+      or m.codice_compagnia ilike '%' || $${n} || '%'
+      or i.denominazione ilike '%' || $${n} || '%'
+      or m.matricola = upper($${n})
+    )`,
+  });
+  const daJoin = `
     from mandati m
-    join intermediari i on i.numero_iscrizione_rui = m.matricola
-    where ${where.join('\n      and ')}
-    order by m.oss, i.inoperativo
-    limit $${params.length}
+    join intermediari i on i.numero_iscrizione_rui = m.matricola`;
+  const { rows, totale } = await paginaConTotale({
+    sql: `
+      select distinct on (m.oss)
+        m.oss, m.matricola as rui, i.denominazione, i.sezione,
+        m.codice_compagnia, m.ragione_sociale
+      ${daJoin}
+      where ${f.where.join(' and ')}
+      order by m.oss, i.inoperativo
+      limit $${f.params.length}
     `,
-    params,
-  );
-  return pagina(rows, limit, (r) => ({ dopo_oss: String(r.oss) }));
+    params: f.params,
+    conteggio: `select count(distinct m.oss) as n ${daJoin} where ${f.whereConteggio.join(' and ')}`,
+    paramsConteggio: f.paramsConteggio,
+    primaPagina: !f.cursore,
+  });
+  return { ...pagina(rows, f.limit, (r) => ({ dopo_oss: String(r.oss) })), totale };
 }
 
-export async function elencoCariche(client, { q, sezione, dopoOss, limite } = {}) {
-  const sezioni = sezioniRichieste(sezione);
-  const limit = clamp(limite, 40, 80);
-  const params = [sezioni];
-  const where = ['true'];
-
-  if (q) {
-    params.push(String(q).trim());
-    where.push(`(
-      pf.denominazione ilike '%' || $${params.length} || '%'
-      or pg.denominazione ilike '%' || $${params.length} || '%'
-      or c.qualifica_intermediario ilike '%' || $${params.length} || '%'
-      or c.numero_iscrizione_rui_pf = upper($${params.length})
-      or c.numero_iscrizione_rui_pg = upper($${params.length})
-    )`);
-  }
-  if (dopoOss != null && dopoOss !== '') {
-    params.push(Number(dopoOss));
-    where.push(`c.oss > $${params.length}::bigint`);
-  }
-  params.push(limit + 1);
-
-  const { rows } = await client.query(
-    `
-    select distinct on (c.oss)
-      c.oss,
-      c.numero_iscrizione_rui_pf as persona_rui,
-      pf.denominazione as persona,
-      c.numero_iscrizione_rui_pg as societa_rui,
-      pg.denominazione as societa,
-      c.qualifica_intermediario as qualifica,
-      c.responsabile
+export async function elencoCariche(client, {
+  q, sezione, dopoOss, limite, esporta = false,
+} = {}) {
+  const f = filtroElenco({ q, sezione, dopoOss, limite, esporta }, {
+    base: ['true'],
+    oss: 'c.oss',
+    testo: (n) => `(
+      pf.denominazione ilike '%' || $${n} || '%'
+      or pg.denominazione ilike '%' || $${n} || '%'
+      or c.qualifica_intermediario ilike '%' || $${n} || '%'
+      or c.numero_iscrizione_rui_pf = upper($${n})
+      or c.numero_iscrizione_rui_pg = upper($${n})
+    )`,
+  });
+  const daJoin = `
     from cariche c
     left join intermediari pf
       on pf.numero_iscrizione_rui = c.numero_iscrizione_rui_pf
      and pf.sezione = any($1::text[])
     left join intermediari pg
       on pg.numero_iscrizione_rui = c.numero_iscrizione_rui_pg
-     and pg.sezione = any($1::text[])
-    where ${where.join('\n      and ')}
-    order by c.oss, pf.inoperativo, pg.inoperativo
-    limit $${params.length}
+     and pg.sezione = any($1::text[])`;
+  const { rows, totale } = await paginaConTotale({
+    sql: `
+      select distinct on (c.oss)
+        c.oss,
+        c.numero_iscrizione_rui_pf as persona_rui, pf.denominazione as persona,
+        c.numero_iscrizione_rui_pg as societa_rui, pg.denominazione as societa,
+        c.qualifica_intermediario as qualifica, c.responsabile
+      ${daJoin}
+      where ${f.where.join(' and ')}
+      order by c.oss, pf.inoperativo, pg.inoperativo
+      limit $${f.params.length}
     `,
-    params,
-  );
-  return pagina(rows, limit, (r) => ({ dopo_oss: String(r.oss) }));
+    params: f.params,
+    conteggio: `select count(distinct c.oss) as n ${daJoin} where ${f.whereConteggio.join(' and ')}`,
+    paramsConteggio: f.paramsConteggio,
+    primaPagina: !f.cursore,
+  });
+  return { ...pagina(rows, f.limit, (r) => ({ dopo_oss: String(r.oss) })), totale };
 }
 
 function pagina(rows, limit, cursore) {

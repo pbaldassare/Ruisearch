@@ -29,21 +29,21 @@ export const VOCI: VoceMenu[] = [
     label: "Overview",
     path: "/app",
     icon: BarChart3,
-    descrizione: "Sintesi del registro. Solo sezioni A, B, E.",
+    descrizione: "Sintesi del registro: agenti (A), broker (B) e collaboratori (E).",
   },
   {
     id: "intermediari",
     label: "Intermediari",
     path: "/app/intermediari",
     icon: Users,
-    descrizione: "Anagrafiche A, B, E. Cerca per nome o numero RUI.",
+    descrizione: "Agenti, broker e collaboratori iscritti. Cerca per nome o numero RUI.",
   },
   {
     id: "rete",
     label: "Rete",
     path: "/app/rete",
     icon: GitBranch,
-    descrizione: "Principali e collaboratori a un salto. Entrambi gli estremi A/B/E.",
+    descrizione: "Per chi lavora un intermediario e chi lavora per lui. Cerca per nome o numero RUI.",
   },
   {
     id: "sedi",
@@ -71,14 +71,14 @@ export const VOCI: VoceMenu[] = [
     label: "Query",
     path: "/app/query",
     icon: MessageSquare,
-    descrizione: "Domande in italiano sul registro. Dopo lo script puoi approfondire ulteriormente.",
+    descrizione: "Fai domande in italiano sul registro. Se la risposta non basta, approfondisci con l'AI.",
   },
   {
     id: "utenti",
     label: "Utenti",
     path: "/app/utenti",
     icon: UserPlus,
-    descrizione: "Crea operatori cliente. La password è sempre Leone123!.",
+    descrizione: "Crea e gestisci gli accessi dei clienti.",
   },
   {
     id: "documentazione",
@@ -92,7 +92,7 @@ export const VOCI: VoceMenu[] = [
     label: "Aggiornamento",
     path: "/app/aggiornamento",
     icon: RefreshCw,
-    descrizione: "L'export IVASS si ricarica solo a richiesta, mai in automatico.",
+    descrizione: "Aggiorna i dati dal registro IVASS quando vuoi: non parte mai da solo.",
   },
 ];
 
@@ -130,6 +130,6 @@ export const VOCI_CLIENTE: VoceMenu[] = [
     label: "Opportunity",
     path: "/cliente/opportunity",
     icon: Lightbulb,
-    descrizione: "Prospect salvati, recapiti da web e stato di lavoro.",
+    descrizione: "I potenziali clienti che hai salvato, con i recapiti trovati sul web e lo stato di lavoro.",
   },
 ];

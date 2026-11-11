@@ -138,27 +138,40 @@ async function persistRicerca(client, ruiCliente, { frase, zona, compagnia, sezi
     ],
   );
   const ricercaId = ins.rows[0].id;
-  for (const r of items) {
-    await client.query(
-      `
-      insert into cliente_ricerca_risultati (
-        ricerca_id, rui, denominazione, sezione, inoperativo, subagenti, comuni, province
-      )
-      values ($1, $2, $3, $4, $5, $6, $7, $8)
-      on conflict (ricerca_id, rui) do update
-        set denominazione = excluded.denominazione,
-            sezione = excluded.sezione,
-            inoperativo = excluded.inoperativo,
-            subagenti = excluded.subagenti,
-            comuni = excluded.comuni,
-            province = excluded.province
-      `,
-      [
-        ricercaId, r.rui, r.denominazione, r.sezione, r.inoperativo,
-        Number(r.subagenti) || 0, r.comuni, r.province,
-      ],
-    );
-  }
+  if (items.length === 0) return ricercaId;
+  // Un solo insert per tutti i risultati: uno per riga costava un viaggio di
+  // rete ciascuno (40 righe = oltre 2 secondi).
+  await client.query(
+    `
+    insert into cliente_ricerca_risultati (
+      ricerca_id, rui, denominazione, sezione, inoperativo, subagenti, comuni, province
+    )
+    select $1, r.rui, r.denominazione, r.sezione, r.inoperativo, r.subagenti, r.comuni, r.province
+    from jsonb_to_recordset($2::jsonb) as r(
+      rui text, denominazione text, sezione text, inoperativo boolean,
+      subagenti integer, comuni text, province text
+    )
+    on conflict (ricerca_id, rui) do update
+      set denominazione = excluded.denominazione,
+          sezione = excluded.sezione,
+          inoperativo = excluded.inoperativo,
+          subagenti = excluded.subagenti,
+          comuni = excluded.comuni,
+          province = excluded.province
+    `,
+    [
+      ricercaId,
+      JSON.stringify(items.map((r) => ({
+        rui: r.rui,
+        denominazione: r.denominazione,
+        sezione: r.sezione,
+        inoperativo: r.inoperativo,
+        subagenti: Number(r.subagenti) || 0,
+        comuni: r.comuni,
+        province: r.province,
+      }))),
+    ],
+  );
   return ricercaId;
 }
 
@@ -286,7 +299,8 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
         from sedi s
         where s.numero_iscrizione_int = i.numero_iscrizione_rui
           and s.provincia_sede is not null
-      ) as province
+      ) as province,
+      count(*) over () as totale
     from intermediari i
     left join rete_numeri n on n.rui = i.numero_iscrizione_rui
     where ${where.join('\n      and ')}
@@ -302,6 +316,10 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
     params[0] = ['A', 'B'];
     ({ rows } = await client.query(sql, params));
   }
+
+  // count(*) over () conta le righe prima del limit: e' il totale vero.
+  const totale = rows.length ? Number(rows[0].totale) : 0;
+  rows = rows.map(({ totale: _t, ...r }) => r);
 
   let ricercaId = null;
   if (rui_cliente) {
@@ -319,6 +337,7 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
     filtri: { zona: z.testo || null, compagnia: mand || null, sezione: params[0] },
     nota,
     items: rows,
+    totale,
     ricerca_id: ricercaId,
     da_archivio: false,
   };

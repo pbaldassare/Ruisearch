@@ -87,8 +87,10 @@ export function OpportunityPage() {
     <div className="space-y-4">
       <MessaggioStato errore={errore} />
       <p className="text-sm text-muted-foreground">
-        Qui arrivano i nominativi su cui hai premuto «Cerca recapiti». I dati restano in database.
-        {data && !data.kimi_pronta ? " Kimi non è configurata: per ora si salvano sede e sito del RUI." : " Kimi cerca sul web, LinkedIn e i social."}
+        Qui trovi i nominativi su cui hai premuto «Cerca recapiti», salvati per riprenderli quando vuoi.
+        {data && !data.kimi_pronta
+          ? " La ricerca automatica dei recapiti non è attiva: per ora salviamo sede e sito presenti nel registro."
+          : " L'AI cerca i recapiti sul web, su LinkedIn e sui social."}
       </p>
       {erroreAzione ? <p className="text-sm text-destructive">{erroreAzione}</p> : null}
       <div className="flex flex-wrap gap-2">

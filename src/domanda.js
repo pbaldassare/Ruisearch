@@ -56,6 +56,109 @@ export async function lavoraConCompagnia(client, rui, compagnia, { soloAgenti = 
   };
 }
 
+const ETICHETTA_SEZIONE = { A: 'agenti', B: 'broker', E: 'collaboratori' };
+
+/**
+ * Riconosce i filtri di una domanda tipo
+ * "agenti con mandato axa in provincia di BS" o "broker inoperativi a Milano".
+ * Restituisce null se la frase non contiene nessun filtro.
+ */
+export function leggiFiltri(testo) {
+  const t = ` ${String(testo || '').toLowerCase()} `;
+  const filtri = {};
+
+  const sezioni = new Set();
+  if (/\bagent[ie]\b|\bsezione a\b/.test(t)) sezioni.add('A');
+  if (/\bbroker\b|\bmediator[ei]\b|\bsezione b\b/.test(t)) sezioni.add('B');
+  if (/\bcollaborator[ie]\b|\bsezione e\b/.test(t)) sezioni.add('E');
+  if (sezioni.size) filtri.sezioni = [...sezioni];
+
+  const prov = t.match(/\bprovincia\s+(?:di\s+)?([a-z]{2})\b/);
+  if (prov) filtri.provincia = prov[1].toUpperCase();
+
+  // "sezione a" non e' la preposizione "a": la tolgo prima di cercare il comune.
+  const senzaSezione = t.replace(/\bsezione\s+[abe]\b/g, ' ');
+  const comune = senzaSezione.match(
+    /\b(?:comune\s+di|a)\s+([a-zà-ù' ]{3,}?)(?=\s+(?:con|operativ|inoperativ|in\s+provincia)\b|\s*$)/,
+  );
+  if (comune && !/\b(provincia|mandat)/.test(comune[1])) filtri.comune = comune[1].trim();
+
+  if (/\binoperativ[ioe]\b/.test(t)) filtri.inoperativo = true;
+  else if (/\boperativ[ioe]\b/.test(t)) filtri.inoperativo = false;
+
+  if (/\baziend[ae]\b|\bsociet[aà]\b|\bpersone giuridiche\b/.test(t)) filtri.personaGiuridica = true;
+  else if (/\bpersone( fisiche)?\b/.test(t)) filtri.personaGiuridica = false;
+
+  const comp = t.match(
+    /\bcon\s+(?:il\s+|un\s+)?(?:mandat[oi]\s+)?(?:con\s+|di\s+|per\s+)?([a-z0-9][a-z0-9 .&'-]*?)(?=\s+(?:in|nella|a|nel|del|della|operativ[ioe]|inoperativ[ioe])\b|\s*$)/,
+  );
+  if (comp && comp[1].trim().length >= 2) filtri.compagnia = comp[1].trim();
+
+  return Object.keys(filtri).length ? filtri : null;
+}
+
+function descriviFiltri(f) {
+  const parti = [];
+  parti.push(f.sezioni ? f.sezioni.map((s) => ETICHETTA_SEZIONE[s]).join(' e ') : 'intermediari A/B/E');
+  if (f.personaGiuridica === true) parti.push('solo aziende');
+  if (f.personaGiuridica === false) parti.push('solo persone');
+  if (f.inoperativo === true) parti.push('inoperativi');
+  if (f.inoperativo === false) parti.push('operativi');
+  if (f.compagnia) parti.push(`con mandato ${f.compagnia.toUpperCase()}`);
+  if (f.comune) parti.push(`sede a ${f.comune.toUpperCase()}`);
+  if (f.provincia) parti.push(`provincia di ${f.provincia}`);
+  return parti.join(' · ');
+}
+
+export async function elencoFiltrato(client, filtri, { limite = 50 } = {}) {
+  const params = [filtri.sezioni ?? ['A', 'B', 'E']];
+  const where = [];
+  if (filtri.inoperativo != null) {
+    params.push(filtri.inoperativo);
+    where.push(`coalesce(i.inoperativo, false) = $${params.length}`);
+  }
+  if (filtri.personaGiuridica != null) {
+    params.push(filtri.personaGiuridica);
+    where.push(`i.persona_giuridica = $${params.length}`);
+  }
+  if (filtri.provincia) {
+    params.push(filtri.provincia);
+    where.push(`exists (select 1 from sedi s
+      where s.numero_iscrizione_int = i.numero_iscrizione_rui and s.provincia_sede = $${params.length})`);
+  }
+  if (filtri.comune) {
+    params.push(filtri.comune);
+    where.push(`exists (select 1 from sedi s
+      where s.numero_iscrizione_int = i.numero_iscrizione_rui and s.comune_sede ilike $${params.length})`);
+  }
+  if (filtri.compagnia) {
+    params.push(`%${filtri.compagnia}%`);
+    where.push(`exists (select 1 from mandati m
+      where m.matricola = i.numero_iscrizione_rui
+        and (m.ragione_sociale ilike $${params.length} or m.codice_compagnia ilike $${params.length}))`);
+  }
+  params.push(limite);
+  const { rows } = await client.query(
+    `
+    with i as (
+      select distinct on (numero_iscrizione_rui)
+        numero_iscrizione_rui, denominazione, sezione, inoperativo, persona_giuridica
+      from intermediari
+      where sezione = any($1::text[])
+      order by numero_iscrizione_rui, inoperativo, oss
+    )
+    select i.numero_iscrizione_rui, i.denominazione, i.sezione, i.inoperativo,
+           count(*) over () as totale
+    from i
+    ${where.length ? `where ${where.join('\n      and ')}` : ''}
+    order by i.denominazione, i.numero_iscrizione_rui
+    limit $${params.length}
+    `,
+    params,
+  );
+  return { totale: Number(rows[0]?.totale ?? 0), items: rows.map(({ totale, ...r }) => r) };
+}
+
 function unaRisposta(soggetti, verbo) {
   if (soggetti.length === 0) {
     return { ok: false, errore: `nessun intermediario A/B/E per «${verbo}»` };
@@ -151,12 +254,32 @@ export async function interpretaDomanda(client, testoGrezzo) {
     };
   }
 
+  const filtri = leggiFiltri(testo);
+  if (filtri) {
+    const { totale, items } = await elencoFiltrato(client, filtri);
+    const descrizione = descriviFiltri(filtri);
+    return {
+      tipo: 'elenco',
+      domanda: testo,
+      ok: totale > 0,
+      filtri,
+      totale,
+      risposta: totale > 0
+        ? `${totale.toLocaleString('it-IT')} iscritti trovati: ${descrizione}.`
+        : `Nessun iscritto trovato: ${descrizione}.`,
+      nota: totale > items.length ? `Mostro i primi ${items.length} in ordine alfabetico.` : undefined,
+      risultati: items,
+    };
+  }
+
   const { soggetti } = await risolviSoggetto(client, testo);
   return {
     tipo: 'cerca',
     domanda: testo,
     ok: soggetti.length > 0,
     risultati: soggetti,
-    nota: 'Non ho riconosciuto un pattern. Ho cercato il testo come nome o RUI.',
+    nota: soggetti.length
+      ? 'Non ho riconosciuto una domanda, quindi ho cercato il testo come nome o numero RUI.'
+      : 'Non ho riconosciuto una domanda e nessun nome corrisponde. Prova uno degli esempi.',
   };
 }

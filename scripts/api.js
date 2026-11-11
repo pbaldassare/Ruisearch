@@ -19,7 +19,13 @@ import {
   elencoOpportunity,
   salvaOpportunity,
 } from '../src/opportunity.js';
-import { closePool, withClient } from '../src/db.js';
+import { closePool, getPool, riscaldaPool, withClient } from '../src/db.js';
+
+// Le richieste usano il pool: ogni query prende una connessione solo per il
+// tempo che le serve. Tenerne una fissa per tutta la richiesta bloccava il
+// server quando le query interne in parallelo chiedevano altre connessioni
+// (e le chiamate all'AI la occupavano per decine di secondi).
+const conDb = (fn) => fn(getPool());
 import { interpretaDomanda } from '../src/domanda.js';
 import { approfondisciConKimi, kimiPronta } from '../src/kimi-approfondisci.js';
 import { DIMENSIONI, ESEMPI_DOMANDA } from '../src/dimensioni.js';
@@ -34,11 +40,82 @@ import {
   scheda,
   storicoImport,
 } from '../src/query.js';
-import { creaUtenteCliente, elencoUtentiCliente, reimpostaPasswordUtente } from '../src/utenti.js';
+import {
+  creaUtenteCliente,
+  eliminaOperatore,
+  elencoUtentiCliente,
+  impostaAttivoOperatore,
+  reimpostaPasswordUtente,
+} from '../src/utenti.js';
+import { eseguiImport } from '../src/importa.js';
 
 const HOST = process.env.RUI_API_HOST || '0.0.0.0';
 const PORT = Number(process.env.RUI_API_PORT || 8787);
 const API_KEY = (process.env.RUI_API_KEY || '').trim();
+
+// Aggiornamento del registro: parte solo su richiesta dell'admin, uno alla
+// volta. Lo stato vive in memoria e la pagina lo legge a intervalli.
+const aggiornamento = {
+  in_corso: false,
+  fase: null,
+  percentuale: null,
+  messaggio: null,
+  iniziato_il: null,
+  concluso_il: null,
+  esito: null,
+  errore: null,
+  log: [],
+};
+
+function statoAggiornamento() {
+  return { ...aggiornamento, log: aggiornamento.log.slice(-30) };
+}
+
+function avviaAggiornamento({ forza = false } = {}) {
+  if (aggiornamento.in_corso) {
+    const errore = new Error('un aggiornamento è già in corso');
+    errore.statusCode = 409;
+    throw errore;
+  }
+  Object.assign(aggiornamento, {
+    in_corso: true,
+    fase: 'download',
+    percentuale: 0,
+    messaggio: 'avvio',
+    iniziato_il: new Date().toISOString(),
+    concluso_il: null,
+    esito: null,
+    errore: null,
+    log: [],
+  });
+  const annota = (riga) => {
+    aggiornamento.log.push(`${new Date().toISOString().slice(11, 19)} ${riga}`);
+    if (aggiornamento.log.length > 200) aggiornamento.log.shift();
+  };
+  eseguiImport({
+    forza,
+    log: annota,
+    avanzamento: ({ fase, percentuale, messaggio }) => {
+      aggiornamento.fase = fase;
+      aggiornamento.percentuale = percentuale;
+      if (messaggio) aggiornamento.messaggio = messaggio;
+    },
+  })
+    .then((esito) => {
+      aggiornamento.esito = esito.esito;
+    })
+    .catch((errore) => {
+      console.error('aggiornamento registro fallito:', errore);
+      aggiornamento.esito = 'fallito';
+      aggiornamento.errore = errore.message || 'errore sconosciuto';
+      annota(`errore: ${aggiornamento.errore}`);
+    })
+    .finally(() => {
+      aggiornamento.in_corso = false;
+      aggiornamento.concluso_il = new Date().toISOString();
+    });
+  return statoAggiornamento();
+}
 
 function jsonDate(_chiave, valore) {
   return valore instanceof Date ? valore.toISOString() : valore;
@@ -61,6 +138,26 @@ function invia(res, status, corpo) {
     ...cors(),
   });
   res.end(body);
+}
+
+// CSV per Excel in italiano: separatore punto e virgola e BOM UTF-8.
+function cellaCsv(valore) {
+  if (valore == null) return '';
+  const testo = valore instanceof Date ? valore.toISOString() : String(valore);
+  return /[";\n\r]/.test(testo) ? `"${testo.replaceAll('"', '""')}"` : testo;
+}
+
+function inviaCsv(res, nome, righe) {
+  const colonne = righe.length ? Object.keys(righe[0]) : [];
+  const corpo = [colonne.join(';'), ...righe.map((r) => colonne.map((c) => cellaCsv(r[c])).join(';'))].join('\r\n');
+  const data = new Date().toISOString().slice(0, 10);
+  res.writeHead(200, {
+    'content-type': 'text/csv; charset=utf-8',
+    'content-disposition': `attachment; filename="ruisearch-${nome}-${data}.csv"`,
+    'cache-control': 'no-store',
+    ...cors(),
+  });
+  res.end('\ufeff' + corpo);
 }
 
 function queryDi(url) {
@@ -93,9 +190,10 @@ async function corpoJson(req) {
 
 async function esegui(path, q, client, req) {
   if (path === '/overview' || path === '/v1/overview') return overview(client, { sezione: q.sezione });
+  const esporta = q.formato === 'csv';
   if (path === '/intermediari' || path === '/v1/intermediari') {
     return cercaIntermediari(client, {
-      q: q.q, sezione: q.sezione, dopoNome: q.dopo_nome, dopoOss: q.dopo_oss, limite: q.limit,
+      q: q.q, sezione: q.sezione, dopoNome: q.dopo_nome, dopoOss: q.dopo_oss, limite: q.limit, esporta,
     });
   }
   const schedaMatch = path.match(/^(?:\/v1)?\/intermediari\/([^/]+)$/);
@@ -104,17 +202,17 @@ async function esegui(path, q, client, req) {
   if (reteMatch) return rete(client, decodeURIComponent(reteMatch[1]), { sezione: q.sezione });
   if (path === '/sedi' || path === '/v1/sedi') {
     return elencoSedi(client, {
-      q: q.q, provincia: q.provincia, sezione: q.sezione, dopoOss: q.dopo_oss, limite: q.limit,
+      q: q.q || q.provincia, sezione: q.sezione, dopoOss: q.dopo_oss, limite: q.limit, esporta,
     });
   }
   if (path === '/mandati' || path === '/v1/mandati') {
     return elencoMandati(client, {
-      q: q.q, sezione: q.sezione, dopoOss: q.dopo_oss, limite: q.limit,
+      q: q.q, sezione: q.sezione, dopoOss: q.dopo_oss, limite: q.limit, esporta,
     });
   }
   if (path === '/cariche' || path === '/v1/cariche') {
     return elencoCariche(client, {
-      q: q.q, sezione: q.sezione, dopoOss: q.dopo_oss, limite: q.limit,
+      q: q.q, sezione: q.sezione, dopoOss: q.dopo_oss, limite: q.limit, esporta,
     });
   }
   if (path === '/import-runs' || path === '/v1/import-runs') return storicoImport(client, { limite: q.limit });
@@ -166,20 +264,20 @@ async function gestisci(req, res) {
   }
   if (path === '/auth/login' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const esito = await withClient((client) => verificaAccesso(client, corpo.email, corpo.password));
+    const esito = await conDb((client) => verificaAccesso(client, corpo.email, corpo.password));
     invia(res, 200, esito);
     return;
   }
   if (path === '/cliente/sorveglianza' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) =>
+    const out = await conDb((client) =>
       aggiungiBrokerSorvegliato(client, corpo.rui || corpo.rui_cliente, corpo.rui_broker || corpo.broker),
     );
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/sorveglianza' && req.method === 'DELETE') {
-    const out = await withClient((client) =>
+    const out = await conDb((client) =>
       rimuoviBrokerSorvegliato(client, q.rui, q.broker || q.rui_broker),
     );
     invia(res, 200, out);
@@ -187,37 +285,58 @@ async function gestisci(req, res) {
   }
   if (path === '/admin/utenti' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => creaUtenteCliente(client, corpo));
+    const out = await conDb((client) => creaUtenteCliente(client, corpo));
+    invia(res, 200, out);
+    return;
+  }
+  if (path === '/admin/aggiornamento' && req.method === 'GET') {
+    invia(res, 200, statoAggiornamento());
+    return;
+  }
+  if (path === '/admin/aggiornamento' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    invia(res, 202, avviaAggiornamento({ forza: corpo.forza === true }));
+    return;
+  }
+  if (path === '/admin/utenti/stato' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await conDb((client) => impostaAttivoOperatore(client, corpo));
+    invia(res, 200, out);
+    return;
+  }
+  if (path === '/admin/utenti/elimina' && req.method === 'POST') {
+    const corpo = await corpoJson(req);
+    const out = await conDb((client) => eliminaOperatore(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/admin/utenti/password' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => reimpostaPasswordUtente(client, corpo.email));
+    const out = await conDb((client) => reimpostaPasswordUtente(client, corpo.email));
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/opportunity' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => salvaOpportunity(client, corpo));
+    const out = await conDb((client) => salvaOpportunity(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/opportunity/stato' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => aggiornaStatoOpportunity(client, corpo));
+    const out = await conDb((client) => aggiornaStatoOpportunity(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/opportunity/arricchisci' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => arricchisciOpportunity(client, corpo));
+    const out = await conDb((client) => arricchisciOpportunity(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/alert' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) =>
+    const out = await conDb((client) =>
       marcaAlertLetto(client, corpo.rui || corpo.rui_cliente, { id: corpo.id, tutti: corpo.tutti }),
     );
     invia(res, 200, out);
@@ -225,7 +344,7 @@ async function gestisci(req, res) {
   }
   if (path === '/query/ai' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => approfondisciConKimi(client, corpo));
+    const out = await conDb((client) => approfondisciConKimi(client, corpo));
     invia(res, 200, out);
     return;
   }
@@ -274,7 +393,11 @@ async function gestisci(req, res) {
     return;
   }
 
-  const risultato = await withClient((client) => esegui(path, q, client, req));
+  const risultato = await conDb((client) => esegui(path, q, client, req));
+  if (q.formato === 'csv' && Array.isArray(risultato?.items)) {
+    inviaCsv(res, path.split('/').filter(Boolean).pop() || 'export', risultato.items);
+    return;
+  }
   invia(res, 200, risultato);
 }
 
@@ -288,6 +411,16 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`Ruisearch API http://${HOST}:${PORT}`);
+  riscaldaPool().catch((errore) => console.error('apertura connessioni non riuscita:', errore.message));
+  // Un aggiornamento "in corso" all'avvio e' rimasto orfano di un riavvio.
+  withClient((client) =>
+    client.query(
+      `update import_runs
+       set esito = 'fallito', concluso_il = now(),
+           errore = coalesce(errore, 'interrotto dal riavvio del server')
+       where esito = 'in corso'`,
+    ),
+  ).catch((errore) => console.error('pulizia import_runs non riuscita:', errore.message));
 });
 
 function chiudi() {

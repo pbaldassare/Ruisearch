@@ -85,16 +85,18 @@ function ChipList({ voci, max = 6 }: { voci: string[]; max?: number }) {
 function Barre({ titolo, voci, vuoto }: { titolo: string; voci: Barra[]; vuoto: string }) {
   const max = Math.max(...voci.map((v) => v.valore), 1);
   return (
-    <Card>
+    <Card className="min-w-0">
       <p className="text-sm font-semibold">{titolo}</p>
       {voci.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">{vuoto}</p>
       ) : (
         <div className="mt-4 space-y-3">
           {voci.map((v) => (
-            <div key={v.etichetta}>
-              <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
-                <span className="truncate">{v.etichetta}</span>
+            <div key={v.etichetta} className="min-w-0">
+              <div className="mb-1 flex min-w-0 items-baseline justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate" title={v.etichetta}>
+                  {v.etichetta}
+                </span>
                 <span className="shrink-0 font-semibold">{formatNumero(v.valore)}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-secondary">
@@ -213,7 +215,7 @@ export function FidelizzazionePage() {
   return (
     <div className="space-y-6">
       <MessaggioStato errore={errore} />
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {caricamento ? (
           <>
             <SkeletonKpi etichetta="Collaboratori diretti" conIcona={false} />
@@ -223,25 +225,25 @@ export function FidelizzazionePage() {
           </>
         ) : (
           <>
-            <Card>
+            <Card className="p-4 sm:p-6">
               <p className="text-sm text-muted-foreground">Collaboratori diretti</p>
-              <p className="mt-1 font-display text-3xl">{data ? formatNumero(data.sintesi.in_rete) : "—"}</p>
+              <p className="mt-1 font-display text-2xl sm:text-3xl">{data ? formatNumero(data.sintesi.in_rete) : "—"}</p>
             </Card>
-            <Card>
+            <Card className="p-4 sm:p-6">
               <p className="text-sm text-muted-foreground">Lavorano anche altrove</p>
-              <p className="mt-1 font-display text-3xl">
+              <p className="mt-1 font-display text-2xl sm:text-3xl">
                 {data ? formatNumero(data.sintesi?.lavorano_altrove) : "—"}
               </p>
             </Card>
-            <Card>
+            <Card className="p-4 sm:p-6">
               <p className="text-sm text-muted-foreground">Compagnie distinte</p>
-              <p className="mt-1 font-display text-3xl">
+              <p className="mt-1 font-display text-2xl sm:text-3xl">
                 {data ? formatNumero(data.sintesi?.compagnie_distinte) : "—"}
               </p>
             </Card>
-            <Card>
+            <Card className="p-4 sm:p-6">
               <p className="text-sm text-muted-foreground">Avvisi da leggere</p>
-              <p className="mt-1 font-display text-3xl">
+              <p className="mt-1 font-display text-2xl sm:text-3xl">
                 {data ? formatNumero(data.sintesi?.alert_non_letti) : "—"}
               </p>
             </Card>
@@ -278,7 +280,7 @@ export function FidelizzazionePage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         {caricamento ? (
           <>
             <SkeletonBarre />

@@ -26,6 +26,13 @@ type Payload = {
   segnalazioni: Segnalazione[];
 };
 
+const ETICHETTA: Record<Segnalazione["gravita"], string> = {
+  alta: "Da sistemare",
+  media: "Da verificare",
+  bassa: "Da tenere d'occhio",
+  info: "Tutto in ordine",
+};
+
 const COLORE: Record<Segnalazione["gravita"], string> = {
   alta: "border-destructive/40 bg-destructive/5",
   media: "border-primary/30 bg-primary/5",
@@ -51,7 +58,14 @@ export function ControlloRuiPage() {
       ) : null}
       {(data?.segnalazioni ?? []).map((s) => (
         <Card key={s.id} className={cn("border", COLORE[s.gravita])}>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{s.gravita}</p>
+          <p
+            className={cn(
+              "text-xs font-semibold uppercase tracking-wide",
+              s.gravita === "alta" ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {ETICHETTA[s.gravita]}
+          </p>
           <h3 className="mt-1 text-lg font-bold">{s.titolo}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{s.testo}</p>
           {s.voci.length > 0 ? (

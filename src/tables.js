@@ -109,7 +109,8 @@ export const TABELLE = [
   {
     file: 'ELENCO_SITO_INTERNET.csv',
     tabella: 'siti_internet',
-    righeAttese: 10000,
+    // Export dell'11/11/2026: 7.284 righe integre (erano oltre 10.000).
+    righeAttese: 5000,
     colonne: [
       ['numero_iscrizione', T],
       ['web_url', T],

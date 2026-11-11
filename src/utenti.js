@@ -139,3 +139,33 @@ export async function reimpostaPasswordUtente(client, email) {
   if (upd.rowCount === 0) throw erroreHttp(`nessun operatore con email ${indirizzo}`, 404);
   return { ok: true, password, operatore: upd.rows[0] };
 }
+
+function idOperatore(valore) {
+  const id = Number(valore);
+  if (!Number.isInteger(id) || id <= 0) throw erroreHttp('operatore non valido', 400);
+  return id;
+}
+
+/** Disattiva o riattiva l'accesso di un operatore senza cancellarlo. */
+export async function impostaAttivoOperatore(client, { id, attivo } = {}) {
+  const { rows } = await client.query(
+    `update operatori_cliente set attivo = $2 where id = $1 returning id, email, nome, attivo`,
+    [idOperatore(id), attivo === true],
+  );
+  if (!rows[0]) throw erroreHttp('operatore non trovato', 404);
+  return { ok: true, operatore: rows[0] };
+}
+
+/**
+ * Elimina l'accesso di un operatore. La societa' cliente e i suoi dati
+ * (sorveglianze, opportunity, ricerche) restano: si possono riassegnare a
+ * un nuovo operatore creandolo con lo stesso RUI.
+ */
+export async function eliminaOperatore(client, { id } = {}) {
+  const { rows } = await client.query(
+    `delete from operatori_cliente where id = $1 returning id, email`,
+    [idOperatore(id)],
+  );
+  if (!rows[0]) throw erroreHttp('operatore non trovato', 404);
+  return { ok: true, operatore: rows[0] };
+}

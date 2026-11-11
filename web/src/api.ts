@@ -92,6 +92,8 @@ export type IntermediarioLista = {
 export type Pagina<T, C> = {
   items: T[];
   prossimo: C | null;
+  /** Solo sulla prima pagina: quanti risultati in tutto. */
+  totale?: number | null;
 };
 
 export type Overview = {
@@ -111,6 +113,20 @@ export type ImportRun = {
   zip_bytes: number | null;
   righe_totali: number | null;
   errore: string | null;
+};
+
+export type FaseAggiornamento = "download" | "validazione" | "caricamento" | "rete" | "completato";
+
+export type StatoAggiornamento = {
+  in_corso: boolean;
+  fase: FaseAggiornamento | null;
+  percentuale: number | null;
+  messaggio: string | null;
+  iniziato_il: string | null;
+  concluso_il: string | null;
+  esito: "completato" | "identico" | "validato" | "fallito" | null;
+  errore: string | null;
+  log: string[];
 };
 
 export type Collegato = {

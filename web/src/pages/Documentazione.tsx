@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Card } from "@/components/ui";
 import { SkeletonCard } from "@/components/Skeleton";
 import { useApi } from "@/lib/useApi";
@@ -37,8 +38,12 @@ export function DocumentazionePage() {
               <code>{data.autenticazione.header}</code>. {data.autenticazione.nota}
             </p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Sezioni esposte: {data.sezioni_ammesse.join(", ")}. Solo lettura. L&apos;import resta a
-              richiesta da terminale.
+              Sezioni esposte: {data.sezioni_ammesse.join(", ")}. Solo lettura. Gli elenchi accettano{" "}
+              <code>formato=csv</code> per scaricare fino a 5.000 righe. I dati si aggiornano a mano dalla pagina{" "}
+              <Link className="font-semibold text-primary hover:underline" to="/app/aggiornamento">
+                Aggiornamento
+              </Link>
+              .
             </p>
             <p className="mt-3 text-sm">
               Specifica OpenAPI:{" "}
