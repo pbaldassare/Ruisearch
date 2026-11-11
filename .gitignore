@@ -6,3 +6,5 @@ data/
 *.csv
 web/dist
 web/node_modules
+# Configurazione di avvio locale di Claude Code (percorsi della macchina).
+.claude/launch.json
