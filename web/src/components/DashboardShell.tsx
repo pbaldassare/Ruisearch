@@ -46,7 +46,7 @@ export function DashboardShell({
     if (!el) return;
     const misura = () => setAltroSotto(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
     // La voce della pagina aperta resta sempre visibile, anche in fondo al menu.
-    el.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: "nearest" });
+    el.querySelector<HTMLElement>('[aria-current="page"]')?.scrollIntoView({ block: "center" });
     misura();
     el.addEventListener("scroll", misura, { passive: true });
     window.addEventListener("resize", misura);
