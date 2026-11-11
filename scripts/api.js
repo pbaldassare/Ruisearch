@@ -19,7 +19,13 @@ import {
   elencoOpportunity,
   salvaOpportunity,
 } from '../src/opportunity.js';
-import { closePool, riscaldaPool, withClient } from '../src/db.js';
+import { closePool, getPool, riscaldaPool, withClient } from '../src/db.js';
+
+// Le richieste usano il pool: ogni query prende una connessione solo per il
+// tempo che le serve. Tenerne una fissa per tutta la richiesta bloccava il
+// server quando le query interne in parallelo chiedevano altre connessioni
+// (e le chiamate all'AI la occupavano per decine di secondi).
+const conDb = (fn) => fn(getPool());
 import { interpretaDomanda } from '../src/domanda.js';
 import { approfondisciConKimi, kimiPronta } from '../src/kimi-approfondisci.js';
 import { DIMENSIONI, ESEMPI_DOMANDA } from '../src/dimensioni.js';
@@ -258,20 +264,20 @@ async function gestisci(req, res) {
   }
   if (path === '/auth/login' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const esito = await withClient((client) => verificaAccesso(client, corpo.email, corpo.password));
+    const esito = await conDb((client) => verificaAccesso(client, corpo.email, corpo.password));
     invia(res, 200, esito);
     return;
   }
   if (path === '/cliente/sorveglianza' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) =>
+    const out = await conDb((client) =>
       aggiungiBrokerSorvegliato(client, corpo.rui || corpo.rui_cliente, corpo.rui_broker || corpo.broker),
     );
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/sorveglianza' && req.method === 'DELETE') {
-    const out = await withClient((client) =>
+    const out = await conDb((client) =>
       rimuoviBrokerSorvegliato(client, q.rui, q.broker || q.rui_broker),
     );
     invia(res, 200, out);
@@ -279,7 +285,7 @@ async function gestisci(req, res) {
   }
   if (path === '/admin/utenti' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => creaUtenteCliente(client, corpo));
+    const out = await conDb((client) => creaUtenteCliente(client, corpo));
     invia(res, 200, out);
     return;
   }
@@ -294,43 +300,43 @@ async function gestisci(req, res) {
   }
   if (path === '/admin/utenti/stato' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => impostaAttivoOperatore(client, corpo));
+    const out = await conDb((client) => impostaAttivoOperatore(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/admin/utenti/elimina' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => eliminaOperatore(client, corpo));
+    const out = await conDb((client) => eliminaOperatore(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/admin/utenti/password' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => reimpostaPasswordUtente(client, corpo.email));
+    const out = await conDb((client) => reimpostaPasswordUtente(client, corpo.email));
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/opportunity' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => salvaOpportunity(client, corpo));
+    const out = await conDb((client) => salvaOpportunity(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/opportunity/stato' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => aggiornaStatoOpportunity(client, corpo));
+    const out = await conDb((client) => aggiornaStatoOpportunity(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/opportunity/arricchisci' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => arricchisciOpportunity(client, corpo));
+    const out = await conDb((client) => arricchisciOpportunity(client, corpo));
     invia(res, 200, out);
     return;
   }
   if (path === '/cliente/alert' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) =>
+    const out = await conDb((client) =>
       marcaAlertLetto(client, corpo.rui || corpo.rui_cliente, { id: corpo.id, tutti: corpo.tutti }),
     );
     invia(res, 200, out);
@@ -338,7 +344,7 @@ async function gestisci(req, res) {
   }
   if (path === '/query/ai' && req.method === 'POST') {
     const corpo = await corpoJson(req);
-    const out = await withClient((client) => approfondisciConKimi(client, corpo));
+    const out = await conDb((client) => approfondisciConKimi(client, corpo));
     invia(res, 200, out);
     return;
   }
@@ -387,7 +393,7 @@ async function gestisci(req, res) {
     return;
   }
 
-  const risultato = await withClient((client) => esegui(path, q, client, req));
+  const risultato = await conDb((client) => esegui(path, q, client, req));
   if (q.formato === 'csv' && Array.isArray(risultato?.items)) {
     inviaCsv(res, path.split('/').filter(Boolean).pop() || 'export', risultato.items);
     return;
