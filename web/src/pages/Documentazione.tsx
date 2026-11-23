@@ -1,7 +1,170 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Card } from "@/components/ui";
+import { Check, Copy, KeyRound, X } from "lucide-react";
+import { Button, Card, Input } from "@/components/ui";
 import { SkeletonCard } from "@/components/Skeleton";
+import { Tabella, type Colonna } from "@/components/Tabella";
+import { postJson, qs } from "@/api";
+import { cn } from "@/lib/cn";
+import { formatQuando } from "@/lib/format";
 import { useApi } from "@/lib/useApi";
+
+type ChiaveApi = {
+  id: number;
+  nome: string;
+  prefisso: string;
+  creata_il: string;
+  ultimo_uso: string | null;
+  revocata_il: string | null;
+};
+
+function ChiaviApi() {
+  const [tick, setTick] = useState(0);
+  const { data, errore, caricamento } = useApi<{ chiavi: ChiaveApi[] }>(`/api/admin/api-keys${qs({ t: tick })}`);
+  const [nome, setNome] = useState("");
+  const [nuova, setNuova] = useState<{ nome: string; chiave: string } | null>(null);
+  const [copiata, setCopiata] = useState(false);
+  const [conferma, setConferma] = useState<number | null>(null);
+  const [inCorso, setInCorso] = useState(false);
+  const [erroreAzione, setErroreAzione] = useState<string | null>(null);
+
+  async function azione(fn: () => Promise<void>) {
+    setErroreAzione(null);
+    setInCorso(true);
+    try {
+      await fn();
+      setConferma(null);
+      setTick((n) => n + 1);
+    } catch (err) {
+      setErroreAzione(err instanceof Error ? err.message : "operazione non riuscita");
+    } finally {
+      setInCorso(false);
+    }
+  }
+
+  function genera() {
+    if (!nome.trim()) return;
+    void azione(async () => {
+      const out = await postJson<{ chiave: string; voce: ChiaveApi }>("/api/admin/api-keys", { nome: nome.trim() });
+      setNuova({ nome: out.voce.nome, chiave: out.chiave });
+      setCopiata(false);
+      setNome("");
+    });
+  }
+
+  async function copia(testo: string) {
+    try {
+      await navigator.clipboard.writeText(testo);
+      setCopiata(true);
+    } catch {
+      setErroreAzione("Copia non riuscita: seleziona la chiave e copiala a mano.");
+    }
+  }
+
+  const colonne: Colonna<ChiaveApi>[] = [
+    { id: "nome", etichetta: "Nome", cella: (r) => <span className="font-semibold">{r.nome}</span> },
+    { id: "pref", etichetta: "Chiave", cella: (r) => <code className="text-xs">{r.prefisso}…</code> },
+    { id: "creata", etichetta: "Creata", cella: (r) => formatQuando(r.creata_il) },
+    { id: "uso", etichetta: "Ultimo uso", cella: (r) => (r.ultimo_uso ? formatQuando(r.ultimo_uso) : "Mai") },
+    {
+      id: "stato",
+      etichetta: "Stato",
+      cella: (r) => (
+        <span
+          className={cn(
+            "inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
+            r.revocata_il ? "bg-secondary text-muted-foreground" : "bg-primary/10 text-primary",
+          )}
+        >
+          {r.revocata_il ? `Revocata il ${formatQuando(r.revocata_il)}` : "Attiva"}
+        </span>
+      ),
+    },
+    {
+      id: "azioni",
+      etichetta: "",
+      classe: "text-right",
+      cella: (r) =>
+        r.revocata_il ? null : conferma === r.id ? (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="text-xs font-semibold">Revocare la chiave? Chi la usa smette di funzionare.</span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-destructive text-destructive"
+              disabled={inCorso}
+              onClick={() => void azione(() => postJson("/api/admin/api-keys/revoca", { id: r.id }).then(() => undefined))}
+            >
+              <Check className="h-4 w-4" />
+              Sì
+            </Button>
+            <Button size="sm" variant="ghost" disabled={inCorso} onClick={() => setConferma(null)}>
+              <X className="h-4 w-4" />
+              No
+            </Button>
+          </div>
+        ) : (
+          <Button size="sm" variant="outline" disabled={inCorso} onClick={() => setConferma(r.id)}>
+            Revoca
+          </Button>
+        ),
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <h3 className="text-lg font-bold">Chiavi API</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Una chiave per ogni software che usa <code>/api/v1</code>, così si può revocare senza fermare gli altri.
+        </p>
+        <div className="mt-4 flex max-w-xl flex-col gap-3 sm:flex-row">
+          <Input
+            value={nome}
+            maxLength={80}
+            onChange={(e) => setNome(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") genera();
+            }}
+            placeholder="Nome (es. Assicurapp produzione)"
+            aria-label="Nome della chiave"
+          />
+          <Button disabled={inCorso || !nome.trim()} onClick={genera}>
+            <KeyRound className="h-4 w-4" />
+            Genera chiave
+          </Button>
+        </div>
+        {nuova ? (
+          <div className="mt-4 rounded-2xl bg-primary/10 p-4 text-sm" role="status">
+            <p className="font-semibold">
+              Chiave «{nuova.nome}» creata. Copiala ora: dopo aver lasciato la pagina non sarà più visibile.
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+              <code className="min-w-0 flex-1 break-all rounded-xl bg-card px-3 py-2 text-xs">{nuova.chiave}</code>
+              <Button size="sm" variant="outline" onClick={() => void copia(nuova.chiave)}>
+                {copiata ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                {copiata ? "Copiata" : "Copia"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        {errore || erroreAzione ? (
+          <p className="mt-3 text-sm text-destructive" role="alert">
+            {erroreAzione || errore}
+          </p>
+        ) : null}
+      </Card>
+      <Tabella
+        colonne={colonne}
+        righe={data?.chiavi ?? []}
+        vuoto="Nessuna chiave. Generane una qui sopra."
+        chiave={(r) => String(r.id)}
+        caricamento={caricamento && !data}
+        righeSkeleton={2}
+      />
+    </div>
+  );
+}
 
 type Doc = {
   titolo: string;
@@ -52,6 +215,8 @@ export function DocumentazionePage() {
               </a>
             </p>
           </Card>
+
+          <ChiaviApi />
 
           <Card>
             <h3 className="mb-3 text-lg font-bold">Endpoint</h3>

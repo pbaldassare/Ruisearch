@@ -68,7 +68,7 @@ export function documentazionePubblica() {
     sezioni_ammesse: ['A', 'B', 'E'],
     autenticazione: {
       header: 'X-API-Key',
-      nota: 'Obbligatoria su /v1 se RUI_API_KEY è impostata nel .env. La dashboard interna non la chiede.',
+      nota: 'Obbligatoria su /v1. Le chiavi si generano e si revocano in questa pagina. La dashboard interna non la chiede.',
     },
     dimensioni: DIMENSIONI,
     esempi_domanda: ESEMPI_DOMANDA,

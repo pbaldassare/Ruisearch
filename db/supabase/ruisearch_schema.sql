@@ -830,3 +830,20 @@ create index intermediari_denominazione_trgm_idx
   on ruisearch.intermediari using gin (denominazione extensions.gin_trgm_ops);
 create index intermediari_denominazione_oss_idx
   on ruisearch.intermediari (denominazione, oss);
+
+-- ===========================================================================
+-- ruisearch_05_api_keys (2026-11-23)
+-- Chiavi per software esterni su /v1, generate dalla pagina Documentazione.
+-- Solo l'hash SHA-256: la chiave in chiaro si mostra una volta, alla creazione.
+-- ===========================================================================
+create table if not exists ruisearch.api_keys (
+  id          bigint generated always as identity primary key,
+  nome        text not null,
+  prefisso    text not null,
+  hash        text not null unique,
+  creata_il   timestamptz not null default now(),
+  ultimo_uso  timestamptz,
+  revocata_il timestamptz
+);
+alter table ruisearch.api_keys enable row level security;
+grant select, insert, update, delete on ruisearch.api_keys to service_role;

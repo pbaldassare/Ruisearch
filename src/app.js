@@ -11,6 +11,7 @@
 
 import './config.js';
 import { verificaAccesso } from './auth-login.js';
+import { chiaveValida, creaChiave, elencoChiavi, revocaChiave } from './api-keys.js';
 import { creaToken, leggiToken } from './sessione.js';
 import {
   aggiungiBrokerSorvegliato,
@@ -149,10 +150,11 @@ export function creaApp({ aggiornamento }) {
     const livello = livelloAccesso(path);
     let sessione = null;
     if (livello === 'chiave') {
-      const chiave = (process.env.RUI_API_KEY || '').trim();
-      if (!chiave) throw errore('le API esterne non sono attive.', 503);
+      // Chiavi generate dalla pagina Documentazione; RUI_API_KEY resta valida se impostata.
       const offerta = (request.headers.get('x-api-key') || bearer(request)).trim();
-      if (offerta !== chiave) throw errore('manca o non è valida X-API-Key', 401);
+      const daEnv = (process.env.RUI_API_KEY || '').trim();
+      const ok = Boolean(offerta) && ((daEnv && offerta === daEnv) || (await chiaveValida(db(), offerta)));
+      if (!ok) throw errore('manca o non è valida X-API-Key', 401);
     } else if (livello !== 'pubblico') {
       sessione = leggiToken(bearer(request));
       if (livello === 'admin' && sessione.ruolo !== 'admin') throw errore('riservato agli amministratori.', 403);
@@ -193,7 +195,7 @@ export function creaApp({ aggiornamento }) {
     if (path === '/config') {
       return risposta(200, {
         maps_key: (process.env.GOOGLE_MAPS_API_KEY || '').trim(),
-        api_key_richiesta: Boolean((process.env.RUI_API_KEY || '').trim()),
+        api_key_richiesta: true,
         kimi_pronta: kimiPronta(),
       });
     }
@@ -210,6 +212,10 @@ export function creaApp({ aggiornamento }) {
     if (path === '/admin/utenti/password' && metodo === 'POST') {
       return risposta(200, await reimpostaPasswordUtente(db(), corpo.email));
     }
+
+    if (path === '/admin/api-keys' && metodo === 'GET') return risposta(200, await elencoChiavi(db()));
+    if (path === '/admin/api-keys' && metodo === 'POST') return risposta(200, await creaChiave(db(), corpo));
+    if (path === '/admin/api-keys/revoca' && metodo === 'POST') return risposta(200, await revocaChiave(db(), corpo));
 
     // Cliente
     if (path === '/cliente/sorveglianza' && metodo === 'POST') {
