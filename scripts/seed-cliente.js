@@ -4,10 +4,12 @@
 import { readFileSync } from 'node:fs';
 import { closePool, withClient } from '../src/db.js';
 import { hashPassword } from '../src/password.js';
+import { nuovaPassword } from '../src/utenti.js';
 
 const RUI = 'B000778092';
 const EMAIL = 'pbaldassare@consulbrokers.it';
-const PASSWORD = process.env.CLIENTE_CONSULBROKERS_PASSWORD || 'Leone123!';
+// Password casuale a ogni lancio, stampata alla fine: comunicarla al cliente
+const PASSWORD = nuovaPassword();
 
 async function main() {
   await withClient(async (client) => {
@@ -51,7 +53,7 @@ async function main() {
       [cliente.rows[0].id, EMAIL, hash, 'Paolo Baldassare'],
     );
     console.log(`cliente ${cliente.rows[0].denominazione} ${cliente.rows[0].numero_iscrizione_rui}`);
-    console.log(`operatore ${EMAIL}`);
+    console.log(`operatore ${EMAIL}, password ${PASSWORD}`);
   });
 }
 

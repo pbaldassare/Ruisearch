@@ -19,7 +19,7 @@ import { from as copyFrom } from 'pg-copy-streams';
 
 import { TABELLE } from './tables.js';
 import { leggiCsv, rigaPerCopy } from './parse.js';
-import { withClient } from './db.js';
+import { withClientSenzaLimite } from './db.js';
 import { ricostruisciRete } from './rete-materializzata.js';
 
 export const URL_EXPORT =
@@ -210,7 +210,7 @@ export async function eseguiImport({
       return { esito: 'validato', righe: totale, sha256: impronta };
     }
 
-    return await withClient(async (client) => {
+    return await withClientSenzaLimite(async (client) => {
       if (!forza) {
         const { rows } = await client.query(
           'select id from import_runs where zip_sha256 = $1 and esito = $2 limit 1',

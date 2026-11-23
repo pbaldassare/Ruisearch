@@ -1,0 +1,7 @@
+# Intestazioni di sicurezza di Cloudflare Pages per tutte le pagine del sito.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()

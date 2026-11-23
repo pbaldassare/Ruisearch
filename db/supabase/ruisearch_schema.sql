@@ -847,3 +847,17 @@ create table if not exists ruisearch.api_keys (
 );
 alter table ruisearch.api_keys enable row level security;
 grant select, insert, update, delete on ruisearch.api_keys to service_role;
+
+-- ===========================================================================
+-- ruisearch_06_accessi_falliti (2026-11-23)
+-- Blocco del login: 5 password errate sulla stessa email in 15 minuti bloccano
+-- l'accesso per 15 minuti (src/auth-login.js). Le righe vecchie si cancellano da sole.
+-- ===========================================================================
+create table if not exists ruisearch.accessi_falliti (
+  email         text primary key,
+  tentativi     integer not null default 0,
+  primo_il      timestamptz not null default now(),
+  bloccato_fino timestamptz
+);
+alter table ruisearch.accessi_falliti enable row level security;
+grant select, insert, update, delete on ruisearch.accessi_falliti to service_role;

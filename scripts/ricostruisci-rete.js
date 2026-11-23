@@ -4,11 +4,11 @@
 
 // La funzione ricostruisci_rete_collegati() esiste gia' nello schema
 // (db/supabase/ruisearch_schema.sql): qui la si chiama soltanto.
-import { closePool, withClient } from '../src/db.js';
+import { closePool, withClientSenzaLimite } from '../src/db.js';
 import { ricostruisciRete } from '../src/rete-materializzata.js';
 
 async function main() {
-  const out = await withClient((client) => ricostruisciRete(client));
+  const out = await withClientSenzaLimite((client) => ricostruisciRete(client));
   console.log(
     `rete salvata: ${Number(out.archi).toLocaleString('it-IT')} archi, ` +
       `${Number(out.soggetti).toLocaleString('it-IT')} iscritti con rete`,

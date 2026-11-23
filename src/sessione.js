@@ -2,6 +2,7 @@
 // Formato: base64url(payload JSON) + "." + base64url(firma).
 // Il payload porta email, ruolo ("admin" | "cliente") e, per i clienti, il RUI:
 // le API si fidano solo di questo, mai del RUI scritto dal browser.
+// `pv` = impronta della password attuale: cambiarla (o reimpostarla) rende scaduti i token emessi prima.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { Buffer } from 'node:buffer';
@@ -21,16 +22,25 @@ function segreto() {
 
 const b64 = (buf) => Buffer.from(buf).toString('base64url');
 
+/**
+ * Impronta corta di una password (admin: quella del .env; cliente: il suo hash salvato). Firmata col segreto
+ * delle sessioni: dal token, che il browser puo' leggere, non si risale alla password.
+ */
+export function improntaPassword(valore) {
+  return createHmac('sha256', segreto()).update(`pv:${String(valore || '')}`).digest('base64url').slice(0, 22);
+}
+
 function firma(testo) {
   return createHmac('sha256', segreto()).update(testo).digest('base64url');
 }
 
 /** Crea il token per un utente appena autenticato. */
-export function creaToken({ email, ruolo, cliente }) {
+export function creaToken({ email, ruolo, cliente, pv }) {
   const payload = {
     email,
     ruolo,
     rui: ruolo === 'cliente' ? cliente?.rui ?? null : null,
+    pv,
     scade: Date.now() + DURATA_ORE * 3600_000,
   };
   const corpo = b64(JSON.stringify(payload));
@@ -58,5 +68,8 @@ export function leggiToken(token) {
   }
   if (!payload?.scade || payload.scade < Date.now()) throw nonAutorizzato();
   if (payload.ruolo !== 'admin' && payload.ruolo !== 'cliente') throw nonAutorizzato();
+  if (!payload.pv) throw nonAutorizzato();
+  // Admin: password nel .env, si controlla qui. Cliente: la controlla verificaSessioneCliente sul database.
+  if (payload.ruolo === 'admin' && payload.pv !== improntaPassword(process.env.ADMIN_PASSWORD)) throw nonAutorizzato();
   return payload;
 }

@@ -1,16 +1,18 @@
-// Utenti area cliente: società (RUI) + operatore. Password sempre quella di default.
+// Utenti area cliente: società (RUI) + operatore. Alla creazione e a ogni reimpostazione la password è
+// nuova e casuale: si mostra una volta sola all'admin, che la comunica al cliente (nel database solo l'hash).
 
+import { randomInt } from 'node:crypto';
 import './config.js';
 import { anagrafica, normalizzaRui } from './query.js';
 import { hashPassword } from './password.js';
 
-export function passwordClienteDefault() {
-  const daEnv = (
-    process.env.DEFAULT_CLIENTE_PASSWORD
-    || process.env.CLIENTE_CONSULBROKERS_PASSWORD
-    || 'Leone123!'
-  ).trim();
-  return daEnv || 'Leone123!';
+// Senza caratteri che si confondono a voce o a video (0/O, 1/l/I)
+const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+
+/** Password casuale di 14 caratteri (circa 80 bit), a gruppi per dettarla: "Ab3d-Ef5g-Hj7k-Mn". */
+export function nuovaPassword() {
+  const c = Array.from({ length: 14 }, () => ALFABETO[randomInt(ALFABETO.length)]).join('');
+  return c.match(/.{1,4}/g).join('-');
 }
 
 function erroreHttp(messaggio, status) {
@@ -52,10 +54,7 @@ export async function elencoUtentiCliente(client) {
     order by c.denominazione, c.numero_iscrizione_rui
     `,
   );
-  return {
-    password_default: passwordClienteDefault(),
-    utenti: rows,
-  };
+  return { utenti: rows };
 }
 
 export async function creaUtenteCliente(client, { rui, email, nome } = {}) {
@@ -90,7 +89,7 @@ export async function creaUtenteCliente(client, { rui, email, nome } = {}) {
     [soggetto.numero_iscrizione_rui, soggetto.denominazione, soggetto.sezione],
   );
 
-  const password = passwordClienteDefault();
+  const password = nuovaPassword();
   const hash = hashPassword(password);
   const etichetta = String(nome || '').trim() || null;
 
@@ -125,7 +124,7 @@ export async function reimpostaPasswordUtente(client, email) {
   const indirizzo = normalizzaEmail(email);
   if (!emailValida(indirizzo)) throw erroreHttp('indica un indirizzo email valido', 400);
 
-  const password = passwordClienteDefault();
+  const password = nuovaPassword();
   const hash = hashPassword(password);
   const upd = await client.query(
     `

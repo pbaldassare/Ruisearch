@@ -10,7 +10,7 @@
 //   admin     tutto il resto, solo con token admin
 
 import './config.js';
-import { verificaAccesso } from './auth-login.js';
+import { verificaAccesso, verificaSessioneCliente } from './auth-login.js';
 import { chiaveValida, creaChiave, elencoChiavi, revocaChiave } from './api-keys.js';
 import { creaToken, leggiToken } from './sessione.js';
 import {
@@ -157,6 +157,7 @@ export function creaApp({ aggiornamento }) {
       if (!ok) throw errore('manca o non è valida X-API-Key', 401);
     } else if (livello !== 'pubblico') {
       sessione = leggiToken(bearer(request));
+      if (sessione.ruolo === 'cliente') await verificaSessioneCliente(db(), sessione);
       if (livello === 'admin' && sessione.ruolo !== 'admin') throw errore('riservato agli amministratori.', 403);
       if (livello === 'cliente' && sessione.ruolo !== 'cliente' && sessione.ruolo !== 'admin') {
         throw errore('accesso non consentito.', 403);
@@ -181,7 +182,8 @@ export function creaApp({ aggiornamento }) {
 
     if (path === '/auth/login' && metodo === 'POST') {
       const esito = await verificaAccesso(db(), corpo.email, corpo.password);
-      return risposta(200, { ...esito, token: creaToken(esito) });
+      const { pv: _pv, ...pubblico } = esito;
+      return risposta(200, { ...pubblico, token: creaToken(esito) });
     }
 
     if (p === '/overview') return risposta(200, await overview(db(), { sezione: q.sezione }));

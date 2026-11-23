@@ -23,7 +23,6 @@ type ClienteUtente = {
 };
 
 type Elenco = {
-  password_default: string;
   utenti: ClienteUtente[];
 };
 
@@ -57,7 +56,6 @@ export function UtentiPage() {
       : null,
   );
   const candidati = (trovati?.items ?? []).filter((i) => i.sezione === "A" || i.sezione === "B");
-  const password = data?.password_default || "Leone123!";
 
   const righe: Riga[] = (data?.utenti ?? []).flatMap((c) =>
     c.operatori.map((o) => ({ ...o, societa: c.denominazione, rui: c.rui, sezione: c.sezione })),
@@ -90,7 +88,7 @@ export function UtentiPage() {
       setNome("");
       setScelto(null);
       setCerca("");
-      return `Accesso creato per ${out.operatore.email} (${out.cliente.denominazione}). Password: ${out.password}`;
+      return `Accesso creato per ${out.operatore.email} (${out.cliente.denominazione}). Password: ${out.password} (visibile solo ora: comunicala al cliente).`;
     });
   }
 
@@ -139,7 +137,7 @@ export function UtentiPage() {
         conferma?.id === r.id ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="text-xs font-semibold">
-              {conferma.azione === "elimina" ? "Eliminare questo accesso?" : `Reimpostare la password a ${password}?`}
+              {conferma.azione === "elimina" ? "Eliminare questo accesso?" : "Generare una nuova password? Quella attuale smette di funzionare."}
             </span>
             <Button
               size="sm"
@@ -153,7 +151,7 @@ export function UtentiPage() {
                     return `Accesso di ${r.email} eliminato. I dati della società restano.`;
                   }
                   const out = await postJson<{ password: string }>("/api/admin/utenti/password", { email: r.email });
-                  return `Password di ${r.email} reimpostata a ${out.password}.`;
+                  return `Nuova password di ${r.email}: ${out.password} (visibile solo ora: comunicala al cliente).`;
                 })
               }
             >
@@ -206,8 +204,8 @@ export function UtentiPage() {
       <Card>
         <h3 className="text-lg font-bold">Nuovo accesso cliente</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Scegli la società (agente o broker) e l’email di chi entrerà. La password iniziale è{" "}
-          <span className="font-semibold text-foreground">{password}</span>: comunicala al cliente.
+          Scegli la società (agente o broker) e l’email di chi entrerà. La password viene generata a caso e mostrata
+          una sola volta: comunicala al cliente.
         </p>
         <div className="relative mt-4 max-w-xl">
           <Input

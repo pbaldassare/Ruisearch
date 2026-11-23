@@ -33,8 +33,10 @@ export function getPool() {
       // lungo posti del pooler condiviso quando nessuno usa l'app.
       idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_MS || 3 * 60_000),
       keepAlive: true,
-      // Il caricamento massivo tiene la connessione occupata a lungo.
-      statement_timeout: 0,
+      // Il pooler e' condiviso con altre app (15 connessioni per tutto il progetto): una query non puo'
+      // occuparne una per piu' di 30 s. L'import e la ricostruzione della rete tolgono il limite solo sulla
+      // loro connessione (withClientSenzaLimite).
+      statement_timeout: Number(process.env.DB_STATEMENT_TIMEOUT_MS || 30_000),
       idle_in_transaction_session_timeout: 0,
       // Le tabelle vivono nello schema "ruisearch" del progetto Supabase
       // condiviso; pg_trgm sta in "extensions". Il codice usa nomi senza
@@ -110,6 +112,19 @@ export async function withClient(fn) {
   } finally {
     client.release();
   }
+}
+
+/** Come withClient, ma senza limite di tempo sulle query: per l'import del registro e la ricostruzione della rete. */
+export async function withClientSenzaLimite(fn) {
+  return withClient(async (client) => {
+    await client.query('set statement_timeout = 0');
+    try {
+      return await fn(client);
+    } finally {
+      // La connessione torna al pool: di nuovo col limite normale
+      await client.query('reset statement_timeout').catch(() => {});
+    }
+  });
 }
 
 /** Esegue fn dentro una transazione, con rollback su errore. */
