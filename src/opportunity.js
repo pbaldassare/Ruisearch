@@ -4,6 +4,12 @@ import { clienteDaRui } from './cliente.js';
 import { approfondisciConKimi, kimiPronta } from './kimi-approfondisci.js';
 import { anagrafica, normalizzaRui, scheda } from './query.js';
 
+// Una ricerca web per lo stesso intermediario vale GIORNI_RIUSO giorni per tutti i clienti: i recapiti trovati
+// restano in `contatti`, la sintesi in `ricerche_kimi`. Ogni cliente fa al massimo TETTO_GIORNO ricerche
+// nuove al giorno (ora italiana); quelle riusate non contano.
+const GIORNI_RIUSO = 90;
+export const TETTO_GIORNO = 20;
+
 function erroreHttp(messaggio, status) {
   const errore = new Error(messaggio);
   errore.statusCode = status;
@@ -215,9 +221,37 @@ function sintesiOpportunity(kimi, s) {
   return pezzi.join('. ');
 }
 
+async function ricercaRecente(client, target) {
+  const { rows } = await client.query(
+    `select sintesi, fatta_il from ricerche_kimi
+     where rui_target = $1 and fatta_il > now() - make_interval(days => $2)
+     order by fatta_il desc limit 1`,
+    [target, GIORNI_RIUSO],
+  );
+  return rows[0] || null;
+}
+
+async function controllaTetto(client, ruiCliente) {
+  const { rows } = await client.query(
+    `select count(*)::int as fatte
+     from ricerche_kimi k
+     join clienti c on c.id = k.cliente_id
+     where c.numero_iscrizione_rui = $1
+       and k.fatta_il >= (date_trunc('day', now() at time zone 'Europe/Rome') at time zone 'Europe/Rome')`,
+    [ruiCliente],
+  );
+  if (rows[0].fatte >= TETTO_GIORNO) {
+    throw erroreHttp(`hai già fatto le ${TETTO_GIORNO} ricerche web di oggi: riprova domani.`, 429);
+  }
+}
+
 export async function arricchisciOpportunity(client, {
   rui, rui_target, rui_broker, zona, compagnia,
 } = {}) {
+  const precedente = normalizzaRui(rui_target) ? await ricercaRecente(client, normalizzaRui(rui_target)) : null;
+  const usaKimi = !precedente && kimiPronta();
+  if (usaKimi) await controllaTetto(client, rui);
+
   const salvata = await salvaOpportunity(client, {
     rui, rui_target, rui_broker, zona, compagnia,
   });
@@ -238,7 +272,7 @@ export async function arricchisciOpportunity(client, {
   }
 
   let kimi = null;
-  if (kimiPronta()) {
+  if (usaKimi) {
     kimi = await approfondisciConKimi(client, {
       q: [
         `Trova i recapiti pubblici di ${s.soggetto.denominazione} (RUI ${target}, intermediario assicurativo Italia).`,
@@ -246,7 +280,8 @@ export async function arricchisciOpportunity(client, {
         'Usa le ricerche web anche per LinkedIn e i canali social, non solo per email e telefono.',
         'Non inventare. Se un dato non è pubblico, omettilo.',
       ].join(' '),
-      max_web: 5,
+      max_web: 3,
+      solo_web: true,
       budget_ms: 150_000,
       risultato: {
         scelto: {
@@ -285,6 +320,14 @@ export async function arricchisciOpportunity(client, {
     }
   }
 
+  const sintesi = precedente ? (precedente.sintesi || sintesiOpportunity(null, s)) : sintesiOpportunity(kimi, s);
+  if (kimi) {
+    await client.query(
+      'insert into ricerche_kimi (cliente_id, rui_target, sintesi) values ($1, $2, $3)',
+      [salvata.voce.cliente_id, target, sintesi],
+    );
+  }
+
   const upd = await client.query(
     `
     update cliente_opportunity
@@ -294,7 +337,7 @@ export async function arricchisciOpportunity(client, {
     where cliente_id = $1 and rui_target = $2
     returning *
     `,
-    [salvata.voce.cliente_id, target, sintesiOpportunity(kimi, s)],
+    [salvata.voce.cliente_id, target, sintesi],
   );
 
   const recapiti = await client.query(
@@ -310,6 +353,8 @@ export async function arricchisciOpportunity(client, {
   return {
     ok: true,
     kimi_usata: Boolean(kimi),
+    // Data della ricerca web riusata (nessuna nuova ricerca pagata), altrimenti null
+    riusata_il: precedente?.fatta_il ?? null,
     voce: upd.rows[0],
     recapiti: recapiti.rows,
     sintesi: upd.rows[0].sintesi,

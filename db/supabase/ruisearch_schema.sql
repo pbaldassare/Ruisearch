@@ -885,3 +885,21 @@ alter default privileges for role postgres in schema ruisearch grant usage, sele
 alter table ruisearch.api_keys
   add column if not exists finestra_il timestamptz,
   add column if not exists richieste_finestra integer not null default 0;
+
+-- ===========================================================================
+-- ruisearch_09_ricerche_kimi (2026-11-23)
+-- Ricerche web con Kimi dei clienti ("Cerca recapiti"): una ricerca sullo stesso
+-- intermediario si riusa per 90 giorni (tutti i clienti) e ogni cliente ne fa al
+-- massimo 20 nuove al giorno (src/opportunity.js).
+-- ===========================================================================
+create table if not exists ruisearch.ricerche_kimi (
+  id         bigint generated always as identity primary key,
+  cliente_id bigint not null references ruisearch.clienti (id) on delete cascade,
+  rui_target text not null,
+  sintesi    text,
+  fatta_il   timestamptz not null default now()
+);
+create index if not exists ricerche_kimi_target_idx on ruisearch.ricerche_kimi (rui_target, fatta_il desc);
+create index if not exists ricerche_kimi_cliente_idx on ruisearch.ricerche_kimi (cliente_id, fatta_il desc);
+alter table ruisearch.ricerche_kimi enable row level security;
+grant select, insert, update, delete on ruisearch.ricerche_kimi to service_role, ruisearch_api;

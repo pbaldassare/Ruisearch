@@ -549,7 +549,9 @@ export async function approfondisciConKimi(client, corpo) {
     console.error('approfondimento: formule', err.message);
     return ripiego();
   }
-  const tools = [...STRUMENTI_RUI, ...formule.tools];
+  // Con la scheda gia' caricata (Cerca recapiti dei clienti) i tool del registro sono giri pagati in piu'.
+  const soloWeb = Boolean(corpo?.solo_web) && Boolean(schedaNota);
+  const tools = soloWeb ? formule.tools : [...STRUMENTI_RUI, ...formule.tools];
 
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
@@ -563,6 +565,7 @@ export async function approfondisciConKimi(client, corpo) {
         schedaNota ? `Scheda RUI già caricata (non richiamare scheda_rui sullo stesso soggetto):\n${jsonBreve(schedaNota, 7000)}` : '',
         giaPresenti ? `Già in registro/contatti (NON cercare sul web): ${giaPresenti}` : 'Nessun fondamentale già in registro.',
         istruzioneBuchi,
+        soloWeb ? 'I dati del registro sono tutti nella scheda qui sopra: non ci sono tool del registro, usa solo la ricerca web.' : '',
         'Poi, se serve, arricchisci con altri dati interessanti. Rispondi appena puoi con i due blocchi JSON.',
       ].filter(Boolean).join('\n\n'),
     },

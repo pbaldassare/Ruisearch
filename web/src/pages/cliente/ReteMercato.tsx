@@ -5,6 +5,7 @@ import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from 
 import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
 import { postJson, qs } from "@/api";
+import { formatData } from "@/lib/format";
 import { useState } from "react";
 
 type Collegato = {
@@ -50,7 +51,7 @@ export function ReteMercatoPage() {
     setOkAzione(null);
     setBusy(`ai-${ruiTarget}`);
     try {
-      const out = await postJson<{ recapiti: unknown[]; sintesi: string }>(
+      const out = await postJson<{ recapiti: unknown[]; sintesi: string; riusata_il: string | null }>(
         "/api/cliente/opportunity/arricchisci",
         {
           rui: cliente.rui,
@@ -61,7 +62,8 @@ export function ReteMercatoPage() {
         },
       );
       setOkAzione(
-        `Salvato in Opportunity: ${out.sintesi || ruiTarget}. Recapiti: ${out.recapiti?.length ?? 0}.`,
+        `Salvato in Opportunity: ${out.sintesi || ruiTarget}. Recapiti: ${out.recapiti?.length ?? 0}.` +
+          (out.riusata_il ? ` Recapiti già cercati sul web il ${formatData(out.riusata_il)}: la stessa ricerca si rifà dopo 90 giorni.` : ""),
       );
     } catch (err) {
       setErroreAzione(err instanceof Error ? err.message : "arricchimento non riuscito");

@@ -5,6 +5,7 @@ import { BadgeSezione, MessaggioStato } from "@/components/Tabella";
 import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
 import { postJson, qs } from "@/api";
+import { formatData } from "@/lib/format";
 
 type Recapito = {
   tipo: string;
@@ -49,21 +50,24 @@ export function OpportunityPage() {
   const [busy, setBusy] = useState<number | null>(null);
   const [busyAi, setBusyAi] = useState<number | null>(null);
   const [erroreAzione, setErroreAzione] = useState<string | null>(null);
+  const [infoAzione, setInfoAzione] = useState<string | null>(null);
 
   const voci = (data?.voci ?? []).filter((v) => filtro === "tutte" || v.stato === filtro);
 
   async function arricchisciDiNuovo(v: Voce) {
     if (!cliente) return;
     setErroreAzione(null);
+    setInfoAzione(null);
     setBusyAi(v.id);
     try {
-      await postJson("/api/cliente/opportunity/arricchisci", {
+      const out = await postJson<{ riusata_il: string | null }>("/api/cliente/opportunity/arricchisci", {
         rui: cliente.rui,
         rui_target: v.rui_target,
         rui_broker: v.rui_broker,
         zona: v.zona,
         compagnia: v.compagnia,
       });
+      if (out.riusata_il) setInfoAzione(`${v.denominazione || v.rui_target}: recapiti già cercati sul web il ${formatData(out.riusata_il)}: la stessa ricerca si rifà dopo 90 giorni.`);
       setTick((n) => n + 1);
     } catch (err) {
       setErroreAzione(err instanceof Error ? err.message : "arricchimento non riuscito");
@@ -93,6 +97,7 @@ export function OpportunityPage() {
           : " L'AI cerca i recapiti sul web, su LinkedIn e sui social."}
       </p>
       {erroreAzione ? <p className="text-sm text-destructive">{erroreAzione}</p> : null}
+      {infoAzione ? <p className="text-sm text-primary">{infoAzione}</p> : null}
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant={filtro === "tutte" ? "default" : "outline"} onClick={() => setFiltro("tutte")}>
           Tutte
