@@ -10,7 +10,7 @@
 //   admin     tutto il resto, solo con token admin
 
 import './config.js';
-import { verificaAccesso, verificaSessioneCliente } from './auth-login.js';
+import { cambiaPasswordCliente, verificaAccesso, verificaSessioneCliente } from './auth-login.js';
 import { chiaveValida, creaChiave, elencoChiavi, revocaChiave } from './api-keys.js';
 import { creaToken, leggiToken } from './sessione.js';
 import {
@@ -67,6 +67,8 @@ function errore(messaggio, status) {
   return e;
 }
 
+// CORS solo per /v1 (chiave API) e per le letture pubbliche: login, area cliente e admin li usa solo il sito
+// stesso, che chiama /api dalla stessa origine e non ne ha bisogno.
 const CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
@@ -229,6 +231,11 @@ export function creaApp({ aggiornamento }) {
     if (path === '/cliente/alert' && metodo === 'POST') {
       return risposta(200, await marcaAlertLetto(db(), corpo.rui, { id: corpo.id, tutti: corpo.tutti }));
     }
+    if (path === '/cliente/password' && metodo === 'POST') {
+      const esito = await cambiaPasswordCliente(db(), sessione, corpo);
+      const { pv: _pv, ...pubblico } = esito;
+      return risposta(200, { ...pubblico, token: creaToken(esito, { ricordami: corpo.ricordami === true }) });
+    }
     if (path === '/cliente/opportunity' && metodo === 'POST') return risposta(200, await salvaOpportunity(db(), corpo));
     if (path === '/cliente/opportunity/stato' && metodo === 'POST') {
       return risposta(200, await aggiornaStatoOpportunity(db(), corpo));
@@ -291,12 +298,18 @@ export function creaApp({ aggiornamento }) {
   }
 
   return async function app(request) {
+    let r;
     try {
-      return await gestisci(request);
+      r = await gestisci(request);
     } catch (e) {
       const status = e.statusCode || 500;
       if (status >= 500) console.error(request.method, request.url, e);
-      return risposta(status, { errore: status >= 500 && !e.statusCode ? 'errore interno, riprova tra poco.' : e.message });
+      r = risposta(status, { errore: status >= 500 && !e.statusCode ? 'errore interno, riprova tra poco.' : e.message });
     }
+    const path = percorsoApi(new URL(request.url).pathname);
+    const livello = livelloAccesso(path);
+    const conCors = livello === 'chiave' || (livello === 'pubblico' && path !== '/auth/login');
+    if (!conCors) for (const h of Object.keys(CORS)) r.headers.delete(h);
+    return r;
   };
 }

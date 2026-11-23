@@ -861,3 +861,27 @@ create table if not exists ruisearch.accessi_falliti (
 );
 alter table ruisearch.accessi_falliti enable row level security;
 grant select, insert, update, delete on ruisearch.accessi_falliti to service_role;
+
+-- ===========================================================================
+-- ruisearch_07_ruolo_api (2026-11-23)
+-- Utente dedicato alla Edge Function al posto di postgres: legge e scrive solo
+-- le tabelle dello schema ruisearch, niente DDL, niente schemi delle altre app.
+-- BYPASSRLS: la RLS qui serve solo a chiudere anon/authenticated.
+-- Password a parte, mai nel repo:
+--   create role ruisearch_api login bypassrls connection limit 20 password '...';
+-- La Edge Function lo usa tramite il segreto DATABASE_URL (vince su SUPABASE_DB_URL).
+-- ===========================================================================
+grant usage on schema ruisearch to ruisearch_api;
+grant usage on schema extensions to ruisearch_api;
+grant select, insert, update, delete on all tables in schema ruisearch to ruisearch_api;
+grant usage, select on all sequences in schema ruisearch to ruisearch_api;
+alter default privileges for role postgres in schema ruisearch grant select, insert, update, delete on tables to ruisearch_api;
+alter default privileges for role postgres in schema ruisearch grant usage, select on sequences to ruisearch_api;
+
+-- ===========================================================================
+-- ruisearch_08_api_keys_limite (2026-11-23)
+-- Contatore delle chiamate /v1 per chiave nel minuto corrente (src/api-keys.js).
+-- ===========================================================================
+alter table ruisearch.api_keys
+  add column if not exists finestra_il timestamptz,
+  add column if not exists richieste_finestra integer not null default 0;

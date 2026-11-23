@@ -3,7 +3,7 @@
 // node scripts/check-api-keys.js
 
 import assert from 'node:assert/strict';
-import { chiaveValida, creaChiave, elencoChiavi, revocaChiave } from '../src/api-keys.js';
+import { RICHIESTE_MINUTO, chiaveValida, creaChiave, elencoChiavi, revocaChiave } from '../src/api-keys.js';
 
 const righe = [];
 const finto = {
@@ -13,10 +13,12 @@ const finto = {
       righe.push(r);
       return { rows: [r], rowCount: 1 };
     }
-    if (sql.includes('set ultimo_uso')) {
+    if (sql.includes('ultimo_uso = now()')) {
       const r = righe.find((x) => x.hash === p[0] && !x.revocata_il);
-      if (r) r.ultimo_uso = new Date();
-      return { rows: [], rowCount: r ? 1 : 0 };
+      if (!r) return { rows: [], rowCount: 0 };
+      r.ultimo_uso = new Date();
+      r.richieste_finestra = (r.richieste_finestra || 0) + 1; // il finto non azzera il minuto
+      return { rows: [{ richieste_finestra: r.richieste_finestra }], rowCount: 1 };
     }
     if (sql.includes('set revocata_il')) {
       const r = righe.find((x) => x.id === p[0] && !x.revocata_il);
@@ -39,6 +41,11 @@ assert.ok(righe[0].ultimo_uso);
 assert.equal(await chiaveValida(finto, `${chiave}x`), false);
 assert.equal(await chiaveValida(finto, ''), false);
 assert.equal(await chiaveValida(finto, 'x'.repeat(500)), false);
+
+// Limite al minuto: la chiamata numero RICHIESTE_MINUTO + 1 riceve 429
+righe[0].richieste_finestra = RICHIESTE_MINUTO - 1;
+assert.equal(await chiaveValida(finto, chiave), true);
+await assert.rejects(chiaveValida(finto, chiave), (e) => e.statusCode === 429);
 
 await revocaChiave(finto, { id: voce.id });
 assert.equal(await chiaveValida(finto, chiave), false, 'revocata non vale più');

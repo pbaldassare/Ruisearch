@@ -51,4 +51,38 @@ await assert.rejects(verificaSessioneCliente(finto, sessione), /sessione scaduta
 riga = null;
 await assert.rejects(verificaSessioneCliente(finto, sessione), /sessione scaduta/);
 
+// Cambio password del cliente: serve quella attuale, la sbagliata non fa uscire (400, non 401), poi il vecchio token cade
+const { cambiaPasswordCliente } = await import('../src/auth-login.js');
+const { verificaPassword } = await import('../src/password.js');
+const operatore = { email: 'op@cliente.it', password_hash: hashPassword('vecchia-1234'), cliente_id: 1, numero_iscrizione_rui: 'B000000001', denominazione: 'X', sezione: 'B' };
+const db = {
+  async query(sql, p = []) {
+    if (sql.includes('from accessi_falliti')) return { rows: [] };
+    if (sql.includes('accessi_falliti')) return { rows: [], rowCount: 0 };
+    if (sql.includes('update operatori_cliente')) {
+      operatore.password_hash = p[0];
+      return { rowCount: 1 };
+    }
+    return { rows: [operatore] };
+  },
+};
+const sessioneOp = { email: 'op@cliente.it', ruolo: 'cliente', rui: 'B000000001', pv: improntaPassword(operatore.password_hash) };
+await assert.rejects(cambiaPasswordCliente(db, sessioneOp, { attuale: 'sbagliata', nuova: 'nuova-12345' }), (e) => e.statusCode === 400 && /attuale/.test(e.message));
+await assert.rejects(cambiaPasswordCliente(db, sessioneOp, { attuale: 'vecchia-1234', nuova: 'corta' }), /almeno 10/);
+await assert.rejects(cambiaPasswordCliente(db, { ...sessioneOp, ruolo: 'admin' }, { attuale: 'x', nuova: 'nuova-12345' }), (e) => e.statusCode === 403);
+const cambiata = await cambiaPasswordCliente(db, sessioneOp, { attuale: 'vecchia-1234', nuova: 'nuova-12345' });
+assert.ok(verificaPassword('nuova-12345', operatore.password_hash));
+assert.equal(cambiata.pv, improntaPassword(operatore.password_hash));
+await assert.rejects(verificaSessioneCliente(db, sessioneOp), /sessione scaduta/);
+
+// CORS: si' su /v1 e pagine pubbliche, no su area cliente e admin
+const { creaApp } = await import('../src/app.js');
+const app = creaApp({ aggiornamento: {} });
+const cors = async (path) => (await app(new Request(`https://x.test/api${path}`, { method: 'OPTIONS' }))).headers.get('access-control-allow-origin');
+assert.equal(await cors('/v1/intermediari'), '*');
+assert.equal(await cors('/documentazione'), '*');
+assert.equal(await cors('/cliente/estratto'), null);
+assert.equal(await cors('/admin/utenti'), null);
+assert.equal(await cors('/auth/login'), null);
+
 console.log('sicurezza: ok');

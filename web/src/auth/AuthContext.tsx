@@ -22,6 +22,7 @@ type AuthContextValue = {
   ruolo: "admin" | "cliente" | null;
   cliente: ClienteSessione | null;
   login: (email: string, password: string, ricordami: boolean) => Promise<void>;
+  cambiaPassword: (attuale: string, nuova: string) => Promise<void>;
   logout: () => void;
 };
 
@@ -39,6 +40,20 @@ function leggiSessione(): Sessione | null {
   }
 }
 
+/** Salva la sessione: in localStorage con "Ricordami", altrimenti solo per la scheda. */
+function salvaSessione(esito: Sessione, ricordami: boolean) {
+  cancellaSessione();
+  (ricordami ? localStorage : sessionStorage).setItem(STORAGE_KEY, JSON.stringify(esito));
+}
+
+function sessioneRicordata(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [sessione, setSessione] = useState<Sessione | null>(() => leggiSessione());
 
@@ -53,8 +68,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
           ricordami,
         });
-        cancellaSessione();
-        (ricordami ? localStorage : sessionStorage).setItem(STORAGE_KEY, JSON.stringify(esito));
+        salvaSessione(esito, ricordami);
+        setSessione(esito);
+      },
+      async cambiaPassword(attuale, nuova) {
+        // Il server chiude le altre sessioni e manda un token nuovo: resta salvato dove stava quello vecchio.
+        const ricordami = sessioneRicordata();
+        const esito = await postJson<Sessione>("/api/cliente/password", { attuale, nuova, ricordami });
+        salvaSessione(esito, ricordami);
         setSessione(esito);
       },
       logout() {

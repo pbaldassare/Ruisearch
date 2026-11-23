@@ -5,6 +5,7 @@ import {
   GitBranch,
   Handshake,
   Heart,
+  KeyRound,
   Lightbulb,
   MessageSquare,
   RefreshCw,
@@ -131,5 +132,12 @@ export const VOCI_CLIENTE: VoceMenu[] = [
     path: "/cliente/opportunity",
     icon: Lightbulb,
     descrizione: "I potenziali clienti che hai salvato, con i recapiti trovati sul web e lo stato di lavoro.",
+  },
+  {
+    id: "password",
+    label: "Password",
+    path: "/cliente/password",
+    icon: KeyRound,
+    descrizione: "Cambia la password con cui accedi.",
   },
 ];

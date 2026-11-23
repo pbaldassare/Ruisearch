@@ -21,6 +21,7 @@ import { ReteMercatoPage } from "@/pages/cliente/ReteMercato";
 import { FidelizzazionePage } from "@/pages/cliente/Fidelizzazione";
 import { ControlloRuiPage } from "@/pages/cliente/ControlloRui";
 import { OpportunityPage } from "@/pages/cliente/Opportunity";
+import { PasswordClientePage } from "@/pages/cliente/Password";
 import { UtentiPage } from "@/pages/Utenti";
 import { VOCI, VOCI_CLIENTE } from "@/nav";
 
@@ -78,6 +79,7 @@ export function App() {
         <Route path="fidelizzazione" element={<FidelizzazionePage />} />
         <Route path="controllo-rui" element={<ControlloRuiPage />} />
         <Route path="opportunity" element={<OpportunityPage />} />
+        <Route path="password" element={<PasswordClientePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

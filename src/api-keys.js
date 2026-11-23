@@ -47,14 +47,27 @@ export async function revocaChiave(client, { id } = {}) {
   return { ok: true, voce: rows[0] };
 }
 
-/** true se la chiave esiste e non è revocata; ne aggiorna l'ultimo uso. */
+// Oltre questo numero di chiamate nello stesso minuto una chiave riceve 429: un software che va in loop
+// o una chiave finita in mani sbagliate non possono martellare il database condiviso.
+export const RICHIESTE_MINUTO = 120;
+
+/** true se la chiave esiste e non è revocata (e ne aggiorna l'ultimo uso); 429 oltre il limite al minuto. */
 export async function chiaveValida(client, offerta) {
   // Le chiavi generate sono lunghe 47 caratteri: niente query per input assurdi.
   if (!offerta || Buffer.byteLength(offerta) > 200) return false;
-  // ponytail: una UPDATE per ogni chiamata /v1; se il traffico cresce, aggiornare ultimo_uso al massimo ogni minuto.
-  const { rowCount } = await client.query(
-    `update api_keys set ultimo_uso = now() where hash = $1 and revocata_il is null`,
+  // ponytail: una UPDATE per ogni chiamata /v1 (ultimo uso + contatore del minuto); basta finché il traffico è da gestionale.
+  const { rows } = await client.query(
+    `update api_keys set
+       ultimo_uso = now(),
+       finestra_il = case when finestra_il > now() - interval '1 minute' then finestra_il else now() end,
+       richieste_finestra = case when finestra_il > now() - interval '1 minute' then richieste_finestra + 1 else 1 end
+     where hash = $1 and revocata_il is null
+     returning richieste_finestra`,
     [hash(offerta)],
   );
-  return rowCount > 0;
+  if (!rows[0]) return false;
+  if (rows[0].richieste_finestra > RICHIESTE_MINUTO) {
+    throw erroreHttp(`troppe richieste: al massimo ${RICHIESTE_MINUTO} al minuto per chiave, riprova tra poco.`, 429);
+  }
+  return true;
 }

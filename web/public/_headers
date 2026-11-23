@@ -1,7 +1,10 @@
 # Intestazioni di sicurezza di Cloudflare Pages per tutte le pagine del sito.
+# CSP: solo script e stili del sito, font Google e Google Maps (pagina Sedi). L'elenco Google e' quello della
+# loro guida "Content Security Policy" per Maps JavaScript API, 'unsafe-eval' compreso: senza, la mappa non parte.
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Strict-Transport-Security: max-age=31536000
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-eval' blob: https://*.googleapis.com https://*.gstatic.com *.google.com https://*.ggpht.com *.googleusercontent.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https://*.googleapis.com https://*.gstatic.com *.google.com *.googleusercontent.com; connect-src 'self' data: blob: https://*.googleapis.com *.google.com https://*.gstatic.com; frame-src *.google.com; worker-src blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'

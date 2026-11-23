@@ -146,3 +146,39 @@ export async function verificaSessioneCliente(client, sessione) {
     throw erroreHttp('sessione scaduta o non valida: accedi di nuovo.', 401);
   }
 }
+
+const LUNGHEZZA_MIN = 10;
+
+/**
+ * L'operatore cliente cambia la propria password. Serve quella attuale, con lo stesso blocco dei tentativi del login.
+ * Le sessioni aperte altrove si chiudono (cambia l'impronta): chi la cambia riceve un token nuovo.
+ */
+export async function cambiaPasswordCliente(client, sessione, { attuale, nuova } = {}) {
+  if (sessione?.ruolo !== 'cliente') throw erroreHttp('la password dell\'amministratore si cambia sul server.', 403);
+  const testo = String(nuova || '');
+  if (testo.length < LUNGHEZZA_MIN) {
+    throw erroreHttp(`la nuova password deve avere almeno ${LUNGHEZZA_MIN} caratteri.`, 400);
+  }
+  if (testo.length > 200) throw erroreHttp('la nuova password è troppo lunga.', 400);
+  if (testo === String(attuale || '')) throw erroreHttp('la nuova password deve essere diversa da quella attuale.', 400);
+  let esito;
+  try {
+    esito = await verificaAccesso(client, sessione.email, attuale);
+  } catch (errore) {
+    // 401 farebbe uscire l'utente come una sessione scaduta: qui e' solo la password attuale sbagliata.
+    if (errore.statusCode === 401) throw erroreHttp('la password attuale non è corretta.', 400);
+    throw errore;
+  }
+  if (esito.ruolo !== 'cliente') throw erroreHttp('accesso non consentito.', 403);
+  const nuovoHash = hashPassword(testo);
+  const { rowCount } = await client.query(
+    `
+    update operatori_cliente o set password_hash = $1
+    from clienti c
+    where c.id = o.cliente_id and lower(o.email) = lower($2) and c.numero_iscrizione_rui = $3
+    `,
+    [nuovoHash, sessione.email, sessione.rui],
+  );
+  if (!rowCount) throw erroreHttp('sessione scaduta o non valida: accedi di nuovo.', 401);
+  return { ...esito, pv: improntaPassword(nuovoHash) };
+}
