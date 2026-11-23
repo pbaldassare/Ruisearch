@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Copy, KeyRound, X } from "lucide-react";
 import { Button, Card, Input } from "@/components/ui";
@@ -27,8 +27,12 @@ function ChiaviApi() {
   const [conferma, setConferma] = useState<number | null>(null);
   const [inCorso, setInCorso] = useState(false);
   const [erroreAzione, setErroreAzione] = useState<string | null>(null);
+  // Due Invio di fila arrivano prima che il pulsante si disabiliti: il ref blocca subito il secondo.
+  const occupato = useRef(false);
 
   async function azione(fn: () => Promise<void>) {
+    if (occupato.current) return;
+    occupato.current = true;
     setErroreAzione(null);
     setInCorso(true);
     try {
@@ -38,12 +42,13 @@ function ChiaviApi() {
     } catch (err) {
       setErroreAzione(err instanceof Error ? err.message : "operazione non riuscita");
     } finally {
+      occupato.current = false;
       setInCorso(false);
     }
   }
 
   function genera() {
-    if (!nome.trim()) return;
+    if (!nome.trim() || occupato.current) return;
     void azione(async () => {
       const out = await postJson<{ chiave: string; voce: ChiaveApi }>("/api/admin/api-keys", { nome: nome.trim() });
       setNuova({ nome: out.voce.nome, chiave: out.chiave });
@@ -124,7 +129,7 @@ function ChiaviApi() {
             maxLength={80}
             onChange={(e) => setNome(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") genera();
+              if (e.key === "Enter" && !e.repeat) genera();
             }}
             placeholder="Nome (es. Assicurapp produzione)"
             aria-label="Nome della chiave"

@@ -3,7 +3,7 @@
 // la Edge Function di Supabase (supabase/functions/ruisearch-api).
 //
 // Accessi:
-//   pubblico  /health, /auth/login, /overview, /documentazione, /openapi.json
+//   pubblico  /health, /auth/login, /overview, /pubblico/cerca, /documentazione, /openapi.json
 //   chiave    /v1/*  con X-API-Key (RUI_API_KEY), per software esterni
 //   cliente   /cliente/*  con token; il RUI del cliente viene SOLO dal token
 //   utente    /intermediari, /config  con token (admin o cliente)
@@ -33,12 +33,12 @@ import { interpretaDomanda } from './domanda.js';
 import { approfondisciConKimi, kimiPronta } from './kimi-approfondisci.js';
 import { DIMENSIONI, ESEMPI_DOMANDA } from './dimensioni.js';
 import { documentazionePubblica, specificaOpenApi } from './documentazione.js';
+import { cercaPubblica, overviewPubblica } from './pubblico.js';
 import {
   cercaIntermediari,
   elencoCariche,
   elencoMandati,
   elencoSedi,
-  overview,
   rete,
   scheda,
   storicoImport,
@@ -51,7 +51,7 @@ import {
   reimpostaPasswordUtente,
 } from './utenti.js';
 
-const PUBBLICI = new Set(['/health', '/auth/login', '/overview', '/documentazione', '/openapi.json']);
+const PUBBLICI = new Set(['/health', '/auth/login', '/overview', '/pubblico/cerca', '/documentazione', '/openapi.json']);
 
 function livelloAccesso(path) {
   if (path === '/v1' || path.startsWith('/v1/')) return 'chiave';
@@ -89,7 +89,9 @@ function risposta(status, corpo) {
 // CSV per Excel in italiano: separatore punto e virgola e BOM UTF-8.
 function cellaCsv(valore) {
   if (valore == null) return '';
-  const testo = valore instanceof Date ? valore.toISOString() : String(valore);
+  let testo = valore instanceof Date ? valore.toISOString() : String(valore);
+  // Excel esegue come formula un testo che inizia con = + - @ (o tab/a capo): con l'apostrofo davanti resta testo.
+  if (typeof valore === 'string' && /^[=+\-@\t\r]/.test(testo)) testo = `'${testo}`;
   return /[";\n\r]/.test(testo) ? `"${testo.replaceAll('"', '""')}"` : testo;
 }
 
@@ -195,6 +197,7 @@ export function creaApp({ aggiornamento }) {
     const esporta = q.formato === 'csv';
 
     if (path === '/health') return risposta(200, { ok: true });
+    if (path === '/pubblico/cerca' && metodo === 'GET') return risposta(200, await cercaPubblica(db(), q.q));
 
     if (path === '/auth/login' && metodo === 'POST') {
       const esito = await verificaAccesso(db(), corpo.email, corpo.password);
@@ -202,7 +205,7 @@ export function creaApp({ aggiornamento }) {
       return risposta(200, { ...pubblico, token: creaToken(esito, { ricordami: corpo.ricordami === true }) });
     }
 
-    if (p === '/overview') return risposta(200, await overview(db(), { sezione: q.sezione }));
+    if (p === '/overview') return risposta(200, await overviewPubblica(db(), { sezione: q.sezione }));
     if (p === '/documentazione') return risposta(200, documentazionePubblica());
     if (p === '/openapi.json') {
       const base = `${request.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')}://${
@@ -212,7 +215,8 @@ export function creaApp({ aggiornamento }) {
 
     if (path === '/config') {
       return risposta(200, {
-        maps_key: (process.env.GOOGLE_MAPS_API_KEY || '').trim(),
+        // Serve solo alla mappa della scheda nell'area admin: ai clienti non si manda.
+        maps_key: sessione?.ruolo === 'admin' ? (process.env.GOOGLE_MAPS_API_KEY || '').trim() : '',
         api_key_richiesta: true,
         kimi_pronta: kimiPronta(),
         mistral_pronta: await mistralPronta(),
@@ -289,7 +293,11 @@ export function creaApp({ aggiornamento }) {
           q: q.q, sezione: q.sezione, dopoNome: q.dopo_nome, dopoOss: q.dopo_oss, limite: q.limit, esporta,
         });
       } else if (scheda_) {
-        risultato = await scheda(db(), decodeURIComponent(scheda_[1]), { sezione: q.sezione });
+        risultato = await scheda(db(), decodeURIComponent(scheda_[1]), {
+          sezione: q.sezione,
+          // /v1 (chiave API): niente recapiti trovati fuori dal registro.
+          contatti: livello !== 'chiave',
+        });
       } else if (rete_) {
         risultato = await rete(db(), decodeURIComponent(rete_[1]), { sezione: q.sezione });
       } else if (p === '/sedi') {
@@ -317,9 +325,16 @@ export function creaApp({ aggiornamento }) {
     try {
       r = await gestisci(request);
     } catch (e) {
-      const status = e.statusCode || 500;
-      if (status >= 500) console.error(request.method, request.url, e);
-      r = risposta(status, { errore: status >= 500 && !e.statusCode ? 'errore interno, riprova tra poco.' : e.message });
+      // 55P03 = lock_timeout: l'import sta sostituendo le tabelle del registro (circa un minuto).
+      const occupato = e?.code === '55P03';
+      const status = occupato ? 503 : e.statusCode || 500;
+      if (status >= 500 && !occupato) console.error(request.method, request.url, e);
+      r = risposta(status, {
+        errore: occupato
+          ? 'Registro in aggiornamento, riprova tra un minuto.'
+          : status >= 500 && !e.statusCode ? 'errore interno, riprova tra poco.' : e.message,
+      });
+      if (occupato) r.headers.set('retry-after', '60');
     }
     const path = percorsoApi(new URL(request.url).pathname);
     const livello = livelloAccesso(path);

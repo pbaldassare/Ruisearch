@@ -25,11 +25,17 @@ function durata(da: string | null, a: string | null): string {
   return `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
+// Online il job di GitHub parte qualche decina di secondi dopo l'avvio (e poi installa le
+// dipendenze): fino a 5 minuti si aspetta che compaia la sua riga nello storico.
+const ATTESA_AVVIO_MS = 5 * 60_000;
+// L'esito resta in evidenza per un giorno; poi basta lo storico.
+const ESITO_RECENTE_MS = 24 * 3600_000;
+
 function EtichettaEsito({ esito }: { esito: string }) {
   const stile =
     esito === "completato"
       ? "bg-primary/10 text-primary"
-      : esito === "fallito"
+      : esito === "fallito" || esito === "incompleto"
         ? "bg-destructive/10 text-destructive"
         : "bg-secondary text-muted-foreground";
   return (
@@ -97,21 +103,32 @@ function Avanzamento({ stato }: { stato: StatoAggiornamento }) {
 
 export function AggiornamentoPage() {
   const [giro, setGiro] = useState(0);
-  const storico = useApi<ImportRun[]>(`/api/import-runs?giro=${giro}`);
+  const storico = useApi<ImportRun[]>(`/api/import-runs?limit=50&giro=${giro}`);
   const [stato, setStato] = useState<StatoAggiornamento | null>(null);
   const [conferma, setConferma] = useState(false);
   const [avvio, setAvvio] = useState(false);
   const [erroreAvvio, setErroreAvvio] = useState<string | null>(null);
+  // Online, dopo "Aggiorna ora": quando GitHub ha accettato e quale era l'ultima riga in quel momento.
+  const [avviatoIl, setAvviatoIl] = useState<number | null>(null);
+  const idPrima = useRef<number | null | undefined>(undefined);
   const eraInCorso = useRef(false);
+  const ultimoId = useRef<number | null | undefined>(undefined);
+  const visto = useRef(false);
 
-  const ultimoRiuscito = storico.data?.find((r) => r.esito === "completato");
+  // Dati in uso: l'ultimo caricamento che ha sostituito il registro ('incompleto' = manca solo la rete).
+  const ultimoRiuscito = storico.data?.find((r) => r.esito === "completato" || r.esito === "incompleto");
   const inCorso = Boolean(stato?.in_corso);
+  const remoto = Boolean(stato?.remoto);
 
   const leggiStato = useCallback(async () => {
     try {
       const s = await getJson<StatoAggiornamento>("/api/admin/aggiornamento");
-      // Appena finisce, ricarico lo storico per mostrare la nuova riga.
-      if (eraInCorso.current && !s.in_corso) setGiro((g) => g + 1);
+      const id = s.id ?? null;
+      // Una riga nuova (il job e' partito) o una corsa appena finita: ricarico lo storico.
+      const nuova = ultimoId.current !== undefined && id !== ultimoId.current;
+      if (nuova || (eraInCorso.current && !s.in_corso)) setGiro((g) => g + 1);
+      if (s.in_corso) visto.current = true;
+      ultimoId.current = id;
       eraInCorso.current = s.in_corso;
       setStato(s);
     } catch {
@@ -123,24 +140,36 @@ export function AggiornamentoPage() {
     void leggiStato();
   }, [leggiStato]);
 
-  const remoto = Boolean(stato?.remoto);
+  // Avviato online ma la riga del job non c'e' ancora: si continua a controllare per qualche minuto.
+  const adesso = Date.now();
+  const stessaRiga = (stato?.id ?? null) === (idPrima.current ?? null);
+  // Avviato da qui ma lo stato e' ancora quello della corsa precedente.
+  const attesaAvvio = remoto && avviatoIl != null && !inCorso && stessaRiga;
+  const inAttesa = attesaAvvio && adesso - avviatoIl < ATTESA_AVVIO_MS;
+  const nonPartito = attesaAvvio && adesso - avviatoIl >= ATTESA_AVVIO_MS;
+  const segui = inCorso || inAttesa;
 
   useEffect(() => {
-    // Online il caricamento gira su GitHub Actions: niente fasi da seguire
-    // al secondo, controllo lo storico ogni 30 secondi.
-    if (!inCorso) return;
-    const t = window.setInterval(() => {
-      void leggiStato();
-      if (remoto) setGiro((g) => g + 1);
-    }, remoto ? 30_000 : 1500);
+    // Online il caricamento gira su GitHub Actions e scrive fase ed esito nel
+    // database: basta controllare ogni 10 secondi. In locale ogni 1,5 s.
+    if (!segui) return;
+    const t = window.setInterval(() => void leggiStato(), remoto ? 10_000 : 1500);
     return () => window.clearInterval(t);
-  }, [inCorso, remoto, leggiStato]);
+  }, [segui, remoto, leggiStato]);
 
   async function avvia(forza = false) {
     setAvvio(true);
     setErroreAvvio(null);
     try {
       const s = await postJson<StatoAggiornamento>("/api/admin/aggiornamento", { forza });
+      if (s.remoto) {
+        // Online la risposta e' ancora la corsa precedente: si aspetta la riga nuova del job.
+        idPrima.current = s.id ?? null;
+        ultimoId.current = s.id ?? null;
+        setAvviatoIl(Date.now());
+      } else {
+        visto.current = true;
+      }
       eraInCorso.current = s.in_corso;
       setStato(s);
       setConferma(false);
@@ -151,7 +180,11 @@ export function AggiornamentoPage() {
     }
   }
 
-  const finito = stato && !stato.in_corso && stato.esito;
+  // L'esito si mostra se lo si e' visto arrivare da qui o se e' di oggi (online lo stato e' l'ultima riga).
+  const quandoEsito = stato?.concluso_il ?? stato?.iniziato_il;
+  const recente = quandoEsito ? adesso - new Date(quandoEsito).getTime() < ESITO_RECENTE_MS : false;
+  const finito = stato && !stato.in_corso && !attesaAvvio && stato.esito && (visto.current || recente);
+  const finitoMale = stato?.esito === "fallito" || stato?.esito === "incompleto";
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -193,18 +226,20 @@ export function AggiornamentoPage() {
         <h3 className="text-lg font-bold">Aggiorna dal registro IVASS</h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Non parte mai in automatico. Scarica l'export pubblicato stanotte da IVASS, lo controlla e
-          sostituisce i dati. Il sito IVASS è lento: di solito servono <b>4–6 minuti</b>. Durante
-          l'aggiornamento l'app resta utilizzabile e, se qualcosa va storto, restano i dati di prima.
+          sostituisce i dati. Il sito IVASS è lento: di solito servono <b>4–6 minuti</b>, durante i quali
+          l'app si usa normalmente. Solo alla fine, per circa un minuto mentre le tabelle vengono
+          sostituite, ricerche e schede rispondono «Registro in aggiornamento» e vanno ripetute. Se qualcosa
+          va storto prima di quel momento restano i dati di prima.
         </p>
 
-        {inCorso && stato && remoto ? (
+        {inAttesa && stato ? (
           <div className="mt-5 flex gap-3 rounded-2xl bg-primary/10 p-4 text-sm" role="status">
             <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" />
             <div>
               <p className="font-semibold">Aggiornamento avviato</p>
               <p className="mt-1 text-muted-foreground">
-                {stato.messaggio || "Il caricamento gira su GitHub Actions."} Lo storico qui sotto si aggiorna da solo;
-                puoi anche chiudere la pagina.
+                {stato.messaggio || "Il caricamento gira su GitHub Actions."} Questa pagina si aggiorna da sola;
+                puoi anche chiuderla.
               </p>
               {stato.link ? (
                 <a className="mt-2 inline-block font-semibold text-primary hover:underline" href={stato.link} target="_blank" rel="noreferrer">
@@ -212,6 +247,18 @@ export function AggiornamentoPage() {
                 </a>
               ) : null}
             </div>
+          </div>
+        ) : inCorso && stato && remoto ? (
+          <div className="mt-5">
+            <Avanzamento stato={stato} />
+            <p className="mt-4 text-xs text-muted-foreground">
+              Il caricamento gira su GitHub Actions: puoi chiudere questa pagina.{" "}
+              {stato.link ? (
+                <a className="font-semibold text-primary hover:underline" href={stato.link} target="_blank" rel="noreferrer">
+                  Segui l'avanzamento su GitHub
+                </a>
+              ) : null}
+            </p>
           </div>
         ) : inCorso && stato ? (
           <div className="mt-5">
@@ -266,15 +313,26 @@ export function AggiornamentoPage() {
           </p>
         ) : null}
 
+        {nonPartito && !conferma ? (
+          <p className="mt-3 text-sm text-destructive" role="alert">
+            GitHub ha accettato la richiesta ma dopo 5 minuti l'aggiornamento non risulta partito.{" "}
+            {stato?.link ? (
+              <a className="font-semibold underline" href={stato.link} target="_blank" rel="noreferrer">
+                Controlla il workflow su GitHub
+              </a>
+            ) : null}
+          </p>
+        ) : null}
+
         {finito && !conferma ? (
           <div
             className={cn(
               "mt-5 flex gap-3 rounded-2xl p-4 text-sm",
-              stato.esito === "fallito" ? "bg-destructive/10" : "bg-primary/10",
+              finitoMale ? "bg-destructive/10" : "bg-primary/10",
             )}
-            role={stato.esito === "fallito" ? "alert" : "status"}
+            role={finitoMale ? "alert" : "status"}
           >
-            {stato.esito === "fallito" ? (
+            {finitoMale ? (
               <AlertTriangle className="h-5 w-5 shrink-0 text-destructive" />
             ) : (
               <CheckCircle2 className="h-5 w-5 shrink-0 text-primary" />
@@ -284,16 +342,19 @@ export function AggiornamentoPage() {
                 {stato.esito === "completato" && "Aggiornamento completato"}
                 {stato.esito === "identico" && "I dati sono già aggiornati"}
                 {stato.esito === "fallito" && "Aggiornamento non riuscito"}
+                {stato.esito === "incompleto" && "Registro aggiornato, rete non ricostruita"}
               </p>
               <p className="mt-1 break-words text-muted-foreground">
                 {stato.esito === "fallito"
-                  ? `${stato.errore}. I dati precedenti sono ancora in uso.`
-                  : stato.esito === "identico"
-                    ? "IVASS non ha pubblicato novità rispetto all'ultimo caricamento."
-                    : `Concluso in ${durata(stato.iniziato_il, stato.concluso_il)}.`}
+                  ? `${stato.errore ?? "errore sconosciuto"}. I dati precedenti sono ancora in uso.`
+                  : stato.esito === "incompleto"
+                    ? `${stato.errore ?? ""} Riprova l'aggiornamento con «Ricarica comunque».`
+                    : stato.esito === "identico"
+                      ? "IVASS non ha pubblicato novità rispetto all'ultimo caricamento."
+                      : `Concluso in ${durata(stato.iniziato_il, stato.concluso_il)}.`}
               </p>
-              {stato.esito === "identico" ? (
-                <Button size="sm" variant="outline" className="mt-3" onClick={() => void avvia(true)}>
+              {(stato.esito === "identico" || stato.esito === "incompleto") && (!remoto || stato.avviabile) ? (
+                <Button size="sm" variant="outline" className="mt-3" disabled={avvio} onClick={() => void avvia(true)}>
                   Ricarica comunque
                 </Button>
               ) : null}

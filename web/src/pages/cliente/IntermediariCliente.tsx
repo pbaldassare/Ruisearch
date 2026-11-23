@@ -5,6 +5,7 @@ import { BadgeSezione, BadgeStato, MessaggioStato, Tabella, type Colonna } from 
 import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
 import { getJson, qs } from "@/api";
+import { Rapporto } from "./Rapporto";
 
 type IntermediarioRete = {
   rui_collegato: string;
@@ -12,6 +13,8 @@ type IntermediarioRete = {
   sezione: string | null;
   qualifica: string | null;
   livello: string | null;
+  tramite?: string | null;
+  tramite_denominazione?: string | null;
   inoperativo: boolean | null;
 };
 
@@ -42,7 +45,11 @@ const COLONNE_RETE: Colonna<IntermediarioRete>[] = [
   { id: "rui", etichetta: "RUI", cella: (r) => r.rui_collegato },
   { id: "sez", etichetta: "Sez.", cella: (r) => <BadgeSezione sezione={r.sezione} /> },
   { id: "qual", etichetta: "Ruolo", cella: (r) => r.qualifica || "—" },
-  { id: "liv", etichetta: "Livello", cella: (r) => r.livello || "—" },
+  {
+    id: "liv",
+    etichetta: "Rapporto",
+    cella: (r) => <Rapporto livello={r.livello} tramite={r.tramite} tramiteNome={r.tramite_denominazione} />,
+  },
   { id: "stato", etichetta: "Stato", cella: (r) => <BadgeStato inoperativo={r.inoperativo} /> },
 ];
 

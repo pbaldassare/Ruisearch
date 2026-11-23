@@ -7,6 +7,7 @@ import { useApi } from "@/lib/useApi";
 import { postJson, qs } from "@/api";
 import { formatData } from "@/lib/format";
 import { useState } from "react";
+import { Rapporto } from "./Rapporto";
 
 type Collegato = {
   rui_collegato: string;
@@ -14,6 +15,8 @@ type Collegato = {
   sezione: string | null;
   qualifica: string | null;
   livello: string | null;
+  tramite?: string | null;
+  tramite_denominazione?: string | null;
   inoperativo: boolean | null;
 };
 
@@ -74,12 +77,18 @@ export function ReteMercatoPage() {
 
   const contesto = qs({ zona, compagnia });
 
-  const colonne: Colonna<Collegato>[] = [
+  // Un sub-agente l'hai trovato via l'intermediario della pagina (rui_broker); un principale sta sopra
+  // di lui, quindi nessun broker.
+  const colonne = (principali: boolean): Colonna<Collegato>[] => [
     { id: "nome", etichetta: "Nominativo", cella: (r) => r.denominazione || "—" },
     { id: "rui", etichetta: "RUI", cella: (r) => r.rui_collegato },
     { id: "sez", etichetta: "Sez.", cella: (r) => <BadgeSezione sezione={r.sezione} /> },
     { id: "qual", etichetta: "Ruolo", cella: (r) => r.qualifica || "—" },
-    { id: "liv", etichetta: "Livello", cella: (r) => r.livello || "—" },
+    {
+      id: "liv",
+      etichetta: "Rapporto",
+      cella: (r) => <Rapporto livello={r.livello} tramite={r.tramite} tramiteNome={r.tramite_denominazione} />,
+    },
     { id: "stato", etichetta: "Stato", cella: (r) => <BadgeStato inoperativo={r.inoperativo} /> },
     {
       id: "az",
@@ -96,7 +105,9 @@ export function ReteMercatoPage() {
             type="button"
             size="sm"
             disabled={Boolean(busy)}
-            onClick={() => void arricchisci(r.rui_collegato, data?.soggetto.numero_iscrizione_rui)}
+            onClick={() =>
+              void arricchisci(r.rui_collegato, principali ? undefined : data?.soggetto.numero_iscrizione_rui)
+            }
           >
             {busy === `ai-${r.rui_collegato}` ? "Cerco…" : "Cerca recapiti"}
           </Button>
@@ -163,7 +174,7 @@ export function ReteMercatoPage() {
         <>
           <p className="text-sm font-semibold">Sub-agenti / collaboratori</p>
           <Tabella
-            colonne={colonne}
+            colonne={colonne(false)}
             righe={data?.collaboratori ?? []}
             vuoto="Nessun collaboratore A/B/E sotto questo intermediario."
             chiave={(r) => r.rui_collegato}
@@ -173,7 +184,7 @@ export function ReteMercatoPage() {
             <>
               <p className="text-sm font-semibold">Principali</p>
               <Tabella
-                colonne={colonne}
+                colonne={colonne(true)}
                 righe={data.principali}
                 vuoto="Nessun principale."
                 chiave={(r) => `p-${r.rui_collegato}`}

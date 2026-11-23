@@ -1,0 +1,11 @@
+# Configurazione della CLI Supabase per questo repository (solo cio' che serve al deploy).
+# project_id e' un nome locale richiesto dalla CLI, non il riferimento del progetto
+# (quello lo passa `npm run deploy:api` con --project-ref).
+project_id = "ruisearch"
+
+# La funzione controlla da sola i token di Ruisearch. Con la verifica JWT di
+# Supabase accesa, le chiamate del sito (che non portano un JWT Supabase)
+# riceverebbero tutte 401: nessuno potrebbe piu' entrare. Resta spenta qui,
+# cosi' anche un deploy fatto senza --no-verify-jwt non la riaccende.
+[functions.ruisearch-api]
+verify_jwt = false

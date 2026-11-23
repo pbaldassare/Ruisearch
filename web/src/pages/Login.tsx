@@ -8,10 +8,17 @@ export function LoginPage() {
   const { email, ruolo, login } = useAuth();
   const [params] = useSearchParams();
   const next = params.get("next") || "";
+  // Dalla ricerca della landing arriva /app/intermediari/<rui>: un cliente apre la stessa scheda nella sua area.
   const destinazione =
     ruolo === "cliente"
-      ? next.startsWith("/cliente") ? next : "/cliente"
-      : next.startsWith("/app") ? next : "/app";
+      ? next.startsWith("/cliente")
+        ? next
+        : next.startsWith("/app/intermediari/")
+          ? next.replace(/^\/app/, "/cliente")
+          : "/cliente"
+      : next.startsWith("/app")
+        ? next
+        : "/app";
   const [indirizzo, setIndirizzo] = useState("");
   const [password, setPassword] = useState("");
   const [ricordami, setRicordami] = useState(false);

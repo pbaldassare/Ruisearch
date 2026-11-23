@@ -1,47 +1,40 @@
 // Ricerca broker/agenti per zona e mandato, più scheda con sub-agenti.
 
 import { clienteDaRui } from './cliente.js';
-import { rete, scheda, sezioniRichieste, SEZIONI_ATTIVE } from './query.js';
+import { patternContiene, scheda, sezioniRichieste, sqlInoperativo, SEZIONI_ATTIVE } from './query.js';
 
-const ZONE = {
-  ag: ['AG', 'AGRIGENTO'], al: ['AL', 'ALESSANDRIA'], an: ['AN', 'ANCONA'],
-  ao: ['AO', 'AOSTA'], ap: ['AP', 'ASCOLI'], aq: ['AQ', "L'AQUILA"],
-  ar: ['AR', 'AREZZO'], at: ['AT', 'ASTI'], av: ['AV', 'AVELLINO'],
-  ba: ['BA', 'BARI'], bg: ['BG', 'BERGAMO'], bi: ['BI', 'BIELLA'],
-  bl: ['BL', 'BELLUNO'], bn: ['BN', 'BENEVENTO'], bo: ['BO', 'BOLOGNA'],
-  br: ['BR', 'BRINDISI'], bs: ['BS', 'BRESCIA'], bt: ['BT', 'BARLETTA'],
-  bz: ['BZ', 'BOLZANO'], ca: ['CA', 'CAGLIARI'], cb: ['CB', 'CAMPOBASSO'],
-  ce: ['CE', 'CASERTA'], ch: ['CH', 'CHIETI'], cl: ['CL', 'CALTANISSETTA'],
-  cn: ['CN', 'CUNEO'], co: ['CO', 'COMO'], cr: ['CR', 'CREMONA'],
-  cs: ['CS', 'COSENZA'], ct: ['CT', 'CATANIA'], cz: ['CZ', 'CATANZARO'],
-  en: ['EN', 'ENNA'], fc: ['FC', 'FORLI'], fe: ['FE', 'FERRARA'],
-  fg: ['FG', 'FOGGIA'], fi: ['FI', 'FIRENZE'], fm: ['FM', 'FERMO'],
-  fr: ['FR', 'FROSINONE'], ge: ['GE', 'GENOVA'], go: ['GO', 'GORIZIA'],
-  gr: ['GR', 'GROSSETO'], im: ['IM', 'IMPERIA'], is: ['IS', 'ISERNIA'],
-  kr: ['KR', 'CROTONE'], lc: ['LC', 'LECCO'], le: ['LE', 'LECCE'],
-  li: ['LI', 'LIVORNO'], lo: ['LO', 'LODI'], lt: ['LT', 'LATINA'],
-  lu: ['LU', 'LUCCA'], mb: ['MB', 'MONZA'], mc: ['MC', 'MACERATA'],
-  me: ['ME', 'MESSINA'], mi: ['MI', 'MILANO'], mn: ['MN', 'MANTOVA'],
-  mo: ['MO', 'MODENA'], ms: ['MS', 'MASSA'], mt: ['MT', 'MATERA'],
-  na: ['NA', 'NAPOLI'], no: ['NO', 'NOVARA'], nu: ['NU', 'NUORO'],
-  or: ['OR', 'ORISTANO'], pa: ['PA', 'PALERMO'], pc: ['PC', 'PIACENZA'],
-  pd: ['PD', 'PADOVA'], pe: ['PE', 'PESCARA'], pg: ['PG', 'PERUGIA'],
-  pi: ['PI', 'PISA'], pn: ['PN', 'PORDENONE'], po: ['PO', 'PRATO'],
-  pr: ['PR', 'PARMA'], pt: ['PT', 'PISTOIA'], pu: ['PU', 'PESARO'],
-  pv: ['PV', 'PAVIA'], pz: ['PZ', 'POTENZA'], ra: ['RA', 'RAVENNA'],
-  rc: ['RC', 'REGGIO CALABRIA'], re: ['RE', 'REGGIO EMILIA'],
-  rg: ['RG', 'RAGUSA'], ri: ['RI', 'RIETI'], rm: ['RM', 'ROMA'],
-  roma: ['RM', 'ROMA'], rn: ['RN', 'RIMINI'], ro: ['RO', 'ROVIGO'],
-  sa: ['SA', 'SALERNO'], si: ['SI', 'SIENA'], so: ['SO', 'SONDRIO'],
-  sp: ['SP', 'LA SPEZIA'], sr: ['SR', 'SIRACUSA'], ss: ['SS', 'SASSARI'],
-  su: ['SU', 'SUD SARDEGNA'], sv: ['SV', 'SAVONA'], ta: ['TA', 'TARANTO'],
-  te: ['TE', 'TERAMO'], tn: ['TN', 'TRENTO'], to: ['TO', 'TORINO'],
-  tp: ['TP', 'TRAPANI'], tr: ['TR', 'TERNI'], ts: ['TS', 'TRIESTE'],
-  tv: ['TV', 'TREVISO'], ud: ['UD', 'UDINE'], va: ['VA', 'VARESE'],
-  vb: ['VB', 'VERBANO'], vc: ['VC', 'VERCELLI'], ve: ['VE', 'VENEZIA'],
-  vi: ['VI', 'VICENZA'], vr: ['VR', 'VERONA'], vt: ['VT', 'VITERBO'],
-  vv: ['VV', 'VIBO'],
-};
+// Province: sigla, capoluogo scritto come in sedi.comune_sede, altri nomi con
+// cui si indica la stessa zona (co-capoluoghi, nome della provincia).
+const PROVINCE = [
+  ['AG', 'AGRIGENTO'], ['AL', 'ALESSANDRIA'], ['AN', 'ANCONA'], ['AO', 'AOSTA'],
+  ['AP', 'ASCOLI PICENO', 'ASCOLI'], ['AQ', "L'AQUILA", 'AQUILA'], ['AR', 'AREZZO'],
+  ['AT', 'ASTI'], ['AV', 'AVELLINO'], ['BA', 'BARI'], ['BG', 'BERGAMO'], ['BI', 'BIELLA'],
+  ['BL', 'BELLUNO'], ['BN', 'BENEVENTO'], ['BO', 'BOLOGNA'], ['BR', 'BRINDISI'],
+  ['BS', 'BRESCIA'], ['BT', 'BARLETTA', 'ANDRIA', 'TRANI', 'BARLETTA-ANDRIA-TRANI'],
+  ['BZ', 'BOLZANO - BOZEN', 'BOLZANO', 'BOZEN'], ['CA', 'CAGLIARI'], ['CB', 'CAMPOBASSO'],
+  ['CE', 'CASERTA'], ['CH', 'CHIETI'], ['CL', 'CALTANISSETTA'], ['CN', 'CUNEO'],
+  ['CO', 'COMO'], ['CR', 'CREMONA'], ['CS', 'COSENZA'], ['CT', 'CATANIA'], ['CZ', 'CATANZARO'],
+  ['EN', 'ENNA'], ['FC', "FORLI'", 'CESENA', 'FORLI-CESENA'], ['FE', 'FERRARA'],
+  ['FG', 'FOGGIA'], ['FI', 'FIRENZE'], ['FM', 'FERMO'], ['FR', 'FROSINONE'], ['GE', 'GENOVA'],
+  ['GO', 'GORIZIA'], ['GR', 'GROSSETO'], ['IM', 'IMPERIA'], ['IS', 'ISERNIA'], ['KR', 'CROTONE'],
+  ['LC', 'LECCO'], ['LE', 'LECCE'], ['LI', 'LIVORNO'], ['LO', 'LODI'], ['LT', 'LATINA'],
+  ['LU', 'LUCCA'], ['MB', 'MONZA', 'MONZA E BRIANZA', 'MONZA BRIANZA'], ['MC', 'MACERATA'],
+  ['ME', 'MESSINA'], ['MI', 'MILANO'], ['MN', 'MANTOVA'], ['MO', 'MODENA'],
+  ['MS', 'MASSA', 'CARRARA', 'MASSA CARRARA'], ['MT', 'MATERA'], ['NA', 'NAPOLI'],
+  ['NO', 'NOVARA'], ['NU', 'NUORO'], ['OR', 'ORISTANO'], ['PA', 'PALERMO'], ['PC', 'PIACENZA'],
+  ['PD', 'PADOVA'], ['PE', 'PESCARA'], ['PG', 'PERUGIA'], ['PI', 'PISA'], ['PN', 'PORDENONE'],
+  ['PO', 'PRATO'], ['PR', 'PARMA'], ['PT', 'PISTOIA'], ['PU', 'PESARO', 'URBINO', 'PESARO URBINO'],
+  ['PV', 'PAVIA'], ['PZ', 'POTENZA'], ['RA', 'RAVENNA'],
+  ['RC', 'REGGIO DI CALABRIA', 'REGGIO CALABRIA'], ['RE', "REGGIO NELL'EMILIA", 'REGGIO EMILIA'],
+  ['RG', 'RAGUSA'], ['RI', 'RIETI'], ['RM', 'ROMA'], ['RN', 'RIMINI'], ['RO', 'ROVIGO'],
+  ['SA', 'SALERNO'], ['SI', 'SIENA'], ['SO', 'SONDRIO'], ['SP', 'LA SPEZIA', 'SPEZIA'],
+  ['SR', 'SIRACUSA'], ['SS', 'SASSARI'], ['SU', 'CARBONIA', 'IGLESIAS', 'SUD SARDEGNA'],
+  ['SV', 'SAVONA'], ['TA', 'TARANTO'], ['TE', 'TERAMO'], ['TN', 'TRENTO'], ['TO', 'TORINO'],
+  ['TP', 'TRAPANI'], ['TR', 'TERNI'], ['TS', 'TRIESTE'], ['TV', 'TREVISO'], ['UD', 'UDINE'],
+  ['VA', 'VARESE'], ['VB', 'VERBANIA', 'VERBANO CUSIO OSSOLA', 'VERBANO'], ['VC', 'VERCELLI'],
+  ['VE', 'VENEZIA'], ['VI', 'VICENZA'], ['VR', 'VERONA'], ['VT', 'VITERBO'],
+  ['VV', 'VIBO VALENTIA', 'VIBO'],
+];
 
 function erroreHttp(messaggio, status) {
   const errore = new Error(messaggio);
@@ -53,21 +46,81 @@ function senzaAccenti(valore) {
   return String(valore || '').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
 }
 
+/** "Forlì", "FORLI'", "forli-cesena" → "forli", "forli cesena": per confrontare i nomi. */
+function nomeNormalizzato(valore) {
+  return senzaAccenti(valore).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+const CODICI = new Set(PROVINCE.map(([codice]) => codice));
+const CAPOLUOGHI = new Map(PROVINCE.map(([codice, capoluogo]) => [codice, capoluogo]));
+const NOMI = new Map(); // nome normalizzato → sigla
+for (const [codice, ...nomi] of PROVINCE) {
+  for (const nome of nomi) NOMI.set(nomeNormalizzato(nome), codice);
+}
+// I nomi piu' lunghi prima: "reggio emilia" non deve fermarsi a un nome piu' corto.
+const NOMI_PER_LUNGHEZZA = [...NOMI.keys()].sort((a, b) => b.length - a.length);
+
+/** Sigla di provincia da una sigla valida o da un nome (capoluogo o provincia). */
+export function codiceProvincia(valore) {
+  const grezzo = String(valore || '').trim();
+  if (/^[a-z]{2}$/i.test(grezzo)) return CODICI.has(grezzo.toUpperCase()) ? grezzo.toUpperCase() : null;
+  return NOMI.get(nomeNormalizzato(grezzo)) || null;
+}
+
+/**
+ * Zona scritta dall'utente → filtro sulle sedi.
+ * Un capoluogo (o il nome della provincia) cerca in TUTTA la provincia: chi
+ * scrive "Brescia" cerca la zona, non solo il comune (353 sedi nel comune,
+ * 1.097 in provincia). Un altro comune cerca il comune.
+ */
 export function normalizzaZona(valore) {
   const grezzo = String(valore || '').trim();
   if (!grezzo) return { testo: '', provincia: null, comune: null };
-  const chiave = senzaAccenti(grezzo);
-  const nota = ZONE[chiave];
-  if (nota) return { testo: grezzo, provincia: nota[0], comune: nota[1] };
   if (/^[a-z]{2}$/i.test(grezzo)) {
     return { testo: grezzo, provincia: grezzo.toUpperCase(), comune: null };
   }
+  const codice = NOMI.get(nomeNormalizzato(grezzo));
+  if (codice) return { testo: grezzo, provincia: codice, comune: null, capoluogo: true };
   return { testo: grezzo, provincia: null, comune: grezzo };
+}
+
+/**
+ * Zona dentro una frase. Una sigla vale solo se e' chiaramente una provincia:
+ * dopo "provincia di", da sola dopo "a/su/in", oppure scritta in maiuscolo
+ * ("broker TO"). Mai parole italiane come su, le, al, in minuscolo.
+ */
+function trovaZona(testo) {
+  const t = ` ${testo} `;
+  const fine = String.raw`(?=\s*(?:[,.;:?!]|\bcon\b|\be\s+(?:provincia|dintorni|hinterland)\b|$))`;
+
+  const prov = t.match(new RegExp(String.raw`\bprov(?:incia|\.)?\s+(?:di\s+)?([a-zà-ù' -]+?)${fine}`, 'i'));
+  if (prov) return prov[1].trim();
+
+  const prep = t.match(new RegExp(
+    String.raw`\s(?:su|a|ad|in|nel|nella|nei|zona|presso)\s+(?:zona\s+)?([a-zà-ù' -]+?)${fine}`, 'i',
+  ));
+  if (prep && prep[1].trim()) {
+    const zona = prep[1].trim();
+    if (/^[a-z]{2}$/i.test(zona)) return CODICI.has(zona.toUpperCase()) ? zona.toUpperCase() : '';
+    return zona;
+  }
+
+  // Nessuna preposizione: un capoluogo citato ovunque ("broker al centro di Torino").
+  const norm = ` ${nomeNormalizzato(testo)} `;
+  const nome = NOMI_PER_LUNGHEZZA.find((n) => norm.includes(` ${n} `));
+  if (nome) return CAPOLUOGHI.get(NOMI.get(nome));
+
+  // Sigla in maiuscolo, solo se la frase non e' tutta in maiuscolo.
+  if (/[a-zà-ù]/.test(testo)) {
+    const sigla = (testo.match(/\b[A-Z]{2}\b/g) || []).find((s) => CODICI.has(s));
+    if (sigla) return sigla;
+  }
+  return '';
 }
 
 /** "broker su Roma con Allianz" → zona/compagnia/sezione. */
 export function interpretaQueryMercato(testo) {
-  const grezzo = String(testo || '').trim();
+  const grezzo = String(testo || '').trim().replace(/[’`]/g, "'");
   if (!grezzo) return { zona: '', compagnia: '', sezione: '' };
 
   let sezione = '';
@@ -76,34 +129,21 @@ export function interpretaQueryMercato(testo) {
   if (haBroker && !haAgenti) sezione = 'B';
   else if (haAgenti && !haBroker) sezione = 'A';
 
+  // "con sede a Torino" indica la zona, non una compagnia.
+  let resto = grezzo.replace(/\bcon\s+sede(?:\s+(?:legale|operativa|secondaria))?(?=\s|$)/gi, ' ');
   let compagnia = '';
-  const con = grezzo.match(/\bcon\s+([a-z0-9.&'’ -]+)/i);
+  // "con Allianz", "con le Generali", "con mandato Generali", "con mandato di Unipol".
+  const con = resto.match(
+    /\bcon\s+(?:(?:il|lo|la|le|gli|i|un|una)\s+)?(?:mandat[oi]\s+(?:(?:con|di|del|della|per)\s+)?)?(?:(?:il|lo|la|le|gli|i)\s+)?(?:compagni[ae]\s+)?([a-z0-9à-ù.&' -]+)/i,
+  );
   if (con) {
-    compagnia = con[1].replace(/\s+(su|a|in|di|per)\s+.*/i, '').trim();
+    const coda = con[1].match(/\s+(?:su|a|ad|in|di|per|nel|nella|nei|zona|presso|provincia)\s.*$/i);
+    compagnia = (coda ? con[1].slice(0, coda.index) : con[1]).trim();
+    // La zona si cerca nel resto della frase, senza il nome della compagnia.
+    resto = `${resto.slice(0, con.index)} ${coda ? coda[0] : ''} ${resto.slice(con.index + con[0].length)}`;
   }
 
-  let zona = '';
-  const lower = senzaAccenti(grezzo);
-  const chiavi = Object.keys(ZONE).sort((a, b) => b.length - a.length);
-  for (const chiave of chiavi) {
-    if (chiave.length < 2) continue;
-    const [prov, comune] = ZONE[chiave];
-    const comuni = senzaAccenti(comune);
-    if (new RegExp(`\\b${chiave}\\b`, 'i').test(lower) || lower.includes(comuni)) {
-      zona = comune;
-      break;
-    }
-    if (prov.length === 2 && new RegExp(`\\b${prov.toLowerCase()}\\b`).test(lower)) {
-      zona = comune;
-      break;
-    }
-  }
-  if (!zona) {
-    const su = grezzo.match(/\b(?:su|a|in)\s+([a-zàèéìòù' ]+?)(?:\s+con\b|$)/i);
-    if (su) zona = su[1].trim();
-  }
-
-  return { zona, compagnia, sezione };
+  return { zona: trovaZona(resto.replace(/\s+/g, ' ').trim()), compagnia, sezione };
 }
 
 function chiaveRicerca(zona, compagnia, sezioni) {
@@ -246,7 +286,7 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
 
   const limit = Math.min(Math.max(Number(limite) || 40, 1), 80);
   const params = [sezioni];
-  const where = ['i.sezione = any($1::text[])', 'i.inoperativo is not true'];
+  const where = ['i.sezione = any($1::text[])', `not ${sqlInoperativo('i')}`];
 
   if (z.provincia || z.comune) {
     const parti = [];
@@ -255,12 +295,9 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
       parti.push(`s.provincia_sede = $${params.length}`);
     }
     if (z.comune) {
-      params.push(z.comune);
-      parti.push(`s.comune_sede ilike '%' || $${params.length} || '%'`);
-    }
-    if (z.testo && z.testo !== z.comune && z.testo !== z.provincia) {
-      params.push(z.testo);
-      parti.push(`s.comune_sede ilike '%' || $${params.length} || '%'`);
+      // Con l'accento, con l'apostrofo (FORLI', CANTU') e senza; % e _ non sono jolly.
+      params.push(patternContiene(z.comune));
+      parti.push(`s.comune_sede ilike any($${params.length}::text[])`);
     }
     where.push(`exists (
       select 1 from sedi s
@@ -270,49 +307,60 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
   }
 
   if (mand) {
-    params.push(mand);
+    params.push(patternContiene(mand));
     where.push(`exists (
       select 1 from mandati m
       where m.matricola = i.numero_iscrizione_rui
         and (
-          m.ragione_sociale ilike '%' || $${params.length} || '%'
-          or m.codice_compagnia ilike '%' || $${params.length} || '%'
+          m.ragione_sociale ilike any($${params.length}::text[])
+          or m.codice_compagnia ilike any($${params.length}::text[])
         )
     )`);
   }
 
+  // Prima gli operativi, poi per nome: non i RUI piu' vecchi. Il totale e'
+  // contato prima del limit.
   const sql = `
-    select distinct on (i.numero_iscrizione_rui)
-      i.numero_iscrizione_rui as rui,
-      i.denominazione,
-      i.sezione,
-      i.inoperativo,
+    with trovati as (
+      select distinct on (i.numero_iscrizione_rui)
+        i.numero_iscrizione_rui as rui,
+        i.denominazione,
+        i.sezione,
+        ${sqlInoperativo('i')} as inoperativo
+      from intermediari i
+      where ${where.join('\n        and ')}
+      order by i.numero_iscrizione_rui, 4, i.oss
+    )
+    select
+      t.rui,
+      t.denominazione,
+      t.sezione,
+      t.inoperativo,
       coalesce(n.collaboratori, 0) as subagenti,
       (
         select string_agg(distinct s.comune_sede, ', ')
         from sedi s
-        where s.numero_iscrizione_int = i.numero_iscrizione_rui
+        where s.numero_iscrizione_int = t.rui
           and s.comune_sede is not null
       ) as comuni,
       (
         select string_agg(distinct s.provincia_sede, ', ')
         from sedi s
-        where s.numero_iscrizione_int = i.numero_iscrizione_rui
+        where s.numero_iscrizione_int = t.rui
           and s.provincia_sede is not null
       ) as province,
       count(*) over () as totale
-    from intermediari i
-    left join rete_numeri n on n.rui = i.numero_iscrizione_rui
-    where ${where.join('\n      and ')}
-    order by i.numero_iscrizione_rui, i.inoperativo, i.oss
+    from trovati t
+    left join rete_numeri n on n.rui = t.rui
+    order by t.inoperativo, t.denominazione, t.rui
     limit $${params.length + 1}
   `;
   params.push(limit);
   let { rows } = await client.query(sql, params);
 
-  let nota = null;
+  const note = [];
   if (rows.length === 0 && mand && sezioni.length === 1 && sezioni[0] === 'B') {
-    nota = 'I mandati di compagnia in RUI sono quasi sempre sugli agenti A, non sui broker B. Mostro A e B.';
+    note.push('I mandati di compagnia in RUI sono quasi sempre sugli agenti A, non sui broker B. Mostro A e B.');
     params[0] = ['A', 'B'];
     ({ rows } = await client.query(sql, params));
   }
@@ -320,6 +368,15 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
   // count(*) over () conta le righe prima del limit: e' il totale vero.
   const totale = rows.length ? Number(rows[0].totale) : 0;
   rows = rows.map(({ totale: _t, ...r }) => r);
+  if (z.capoluogo) {
+    note.push(`${z.testo}: cerco in tutta la provincia (${z.provincia}), non solo nel comune.`);
+  }
+  const troncato = totale > rows.length;
+  if (troncato) {
+    note.push(`Mostro i primi ${rows.length} di ${totale.toLocaleString('it-IT')} in ordine alfabetico: `
+      + 'aggiungi una compagnia o un comune per restringere.');
+  }
+  const nota = note.length ? note.join(' ') : null;
 
   let ricercaId = null;
   if (rui_cliente) {
@@ -334,28 +391,33 @@ export async function cercaMercato(client, { zona, compagnia, sezione, limite, q
   }
 
   return {
-    filtri: { zona: z.testo || null, compagnia: mand || null, sezione: params[0] },
+    filtri: {
+      zona: z.testo || null,
+      compagnia: mand || null,
+      sezione: params[0],
+      provincia: z.provincia || null,
+      comune: z.comune || null,
+    },
     nota,
     items: rows,
     totale,
+    troncato,
     ricerca_id: ricercaId,
     da_archivio: false,
   };
 }
 
 export async function schedaMercato(client, rui) {
-  const [s, r] = await Promise.all([
-    scheda(client, rui, { geocodifica: false }),
-    rete(client, rui),
-  ]);
+  // La scheda contiene gia' la rete: niente seconda lettura.
+  const s = await scheda(client, rui, { geocodifica: false, contatti: false });
   return {
     soggetto: s.soggetto,
     sedi: s.sedi,
     mandati: s.mandati,
     siti_internet: s.siti_internet,
     numeri: s.numeri,
-    collaboratori: r.collaboratori || [],
-    principali: r.principali || [],
+    collaboratori: s.rete.collaboratori || [],
+    principali: s.rete.principali || [],
   };
 }
 

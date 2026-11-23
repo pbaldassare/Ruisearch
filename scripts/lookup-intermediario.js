@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // Estrae il sotto-grafo di un intermediario dall'export ufficiale IVASS.
+// Stesse regole delle API (src/lookup.js): solo A/B/E, livello I diretto,
+// livello II indiretto "tramite" la societa' di I livello.
 //
 //   node scripts/lookup-intermediario.js --rui E000188700
 //   node scripts/lookup-intermediario.js --nome "BALDASSARE PAOLO"
@@ -12,7 +14,7 @@ import { join } from 'node:path';
 
 import { TABELLE } from '../src/tables.js';
 import { leggiCsv } from '../src/parse.js';
-import { cercaIntermediari, sottoGrafo } from '../src/lookup.js';
+import { cercaNellExport, sottoGrafo } from '../src/lookup.js';
 
 const URL_EXPORT =
   'https://ruipubblico.ivass.it/inquiry-public-manager/inquiry-public/esporta-registro';
@@ -77,11 +79,13 @@ async function main() {
       });
       return out;
     });
-    const candidati = cercaIntermediari(intermediari, { rui, nome });
+    const candidati = cercaNellExport(intermediari, { rui, nome });
     if (candidati.length === 0) {
       throw new Error('nessun intermediario trovato');
     }
-    const risultati = candidati.map((c) => sottoGrafo(tabelle, c.numero_iscrizione_rui));
+    // Un numero RUI doppio nella fonte e' un candidato solo.
+    const numeri = [...new Set(candidati.map((c) => c.numero_iscrizione_rui))];
+    const risultati = numeri.map((n) => sottoGrafo(tabelle, n));
     process.stdout.write(JSON.stringify(risultati, null, 2) + '\n');
   } finally {
     rmSync(cartella, { recursive: true, force: true });

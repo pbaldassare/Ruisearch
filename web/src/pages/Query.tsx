@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Building2,
   Globe,
@@ -88,37 +88,64 @@ const TIPO: Record<string, string> = {
 
 export function QueryPage() {
   const { data: catalogo } = useApi<{ dimensioni: Dimensione[]; esempi: string[] }>("/api/dimensioni");
-  const [testo, setTesto] = useState("");
+  // La domanda sta nell'indirizzo (?q=): il tasto indietro riporta quella di prima.
+  const [params, setParams] = useSearchParams();
+  const qUrl = (params.get("q") ?? "").trim();
+  const [testo, setTesto] = useState(qUrl);
   const [risposta, setRisposta] = useState<RispostaDomanda | null>(null);
+  // Cambia a ogni risposta nuova: l'approfondimento AI riparte da zero e uno ancora in volo si butta.
+  const [idRisposta, setIdRisposta] = useState(0);
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
-  const [ai, setAi] = useState<RispostaAi | null>(null);
-  const [aiErrore, setAiErrore] = useState<string | null>(null);
+  // Solo l'ultima domanda inviata puo' scrivere il risultato.
+  const giro = useRef(0);
 
-  async function invia(e?: FormEvent, preset?: string) {
-    e?.preventDefault();
-    const q = (preset ?? testo).trim();
-    if (!q) return;
+  async function esegui(q: string) {
+    const mio = ++giro.current;
     setTesto(q);
     setInCorso(true);
     setErrore(null);
-    setAi(null);
-    setAiErrore(null);
     try {
       const out = await getJson<RispostaDomanda>(`/api/query${qs({ q })}`);
+      if (mio !== giro.current) return;
       setRisposta(out);
+      setIdRisposta((n) => n + 1);
     } catch (err) {
+      if (mio !== giro.current) return;
       setRisposta(null);
       setErrore(err instanceof Error ? err.message : "domanda non riuscita");
     } finally {
+      if (mio === giro.current) setInCorso(false);
+    }
+  }
+
+  // Indirizzo cambiato (invio, esempio, indietro/avanti): si esegue la domanda che contiene.
+  useEffect(() => {
+    if (qUrl) {
+      void esegui(qUrl);
+    } else {
+      giro.current++;
+      setTesto("");
+      setRisposta(null);
+      setErrore(null);
       setInCorso(false);
     }
+    // Solo al cambio di domanda nell'indirizzo (esegui cambia a ogni render).
+  }, [qUrl]);
+
+  function invia(e?: FormEvent, preset?: string) {
+    e?.preventDefault();
+    const q = (preset ?? testo).trim();
+    if (!q || inCorso) return;
+    // Stessa domanda gia' nell'indirizzo: la si ripete; altrimenti una voce nuova nella cronologia.
+    if (q === qUrl) void esegui(q);
+    else setParams({ q });
   }
 
   return (
     <div className="space-y-6">
       <Card>
-        <form className="flex flex-col gap-3 sm:flex-row" onSubmit={(e) => void invia(e)}>
+        <form className="flex flex-col gap-3 sm:flex-row" onSubmit={(e) => invia(e)}>
           <Input
             value={testo}
             onChange={(e) => setTesto(e.target.value)}
@@ -135,8 +162,9 @@ export function QueryPage() {
             <button
               key={es}
               type="button"
-              className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold hover:bg-primary/10"
-              onClick={() => void invia(undefined, es)}
+              className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={inCorso}
+              onClick={() => invia(undefined, es)}
             >
               {es}
             </button>
@@ -148,16 +176,7 @@ export function QueryPage() {
 
       {risposta ? <Risultato domanda={risposta} /> : null}
 
-      {risposta ? (
-        <ApprofondimentoAi
-          domanda={testo}
-          risultato={risposta}
-          ai={ai}
-          errore={aiErrore}
-          onAi={setAi}
-          onErrore={setAiErrore}
-        />
-      ) : null}
+      {risposta ? <ApprofondimentoAi key={idRisposta} risultato={risposta} /> : null}
 
       <Card>
         <h3 className="text-lg font-bold">Cosa puoi chiedere</h3>
@@ -171,8 +190,9 @@ export function QueryPage() {
               <p className="text-xs text-muted-foreground">{d.valori.join(" · ")}</p>
               <button
                 type="button"
-                className="mt-0.5 text-left text-xs text-primary hover:underline"
-                onClick={() => void invia(undefined, d.esempio)}
+                className="mt-0.5 text-left text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={inCorso}
+                onClick={() => invia(undefined, d.esempio)}
               >
                 es. {d.esempio}
               </button>
@@ -258,35 +278,36 @@ function Risultato({ domanda }: { domanda: RispostaDomanda }) {
   );
 }
 
-function ApprofondimentoAi({
-  domanda,
-  risultato,
-  ai,
-  errore,
-  onAi,
-  onErrore,
-}: {
-  domanda: string;
-  risultato: RispostaDomanda;
-  ai: RispostaAi | null;
-  errore: string | null;
-  onAi: (v: RispostaAi | null) => void;
-  onErrore: (v: string | null) => void;
-}) {
+/**
+ * Approfondimento con l'AI del risultato mostrato. Si rimonta a ogni risposta
+ * nuova (key): una risposta AI ancora in volo non finisce sotto un altro risultato.
+ */
+function ApprofondimentoAi({ risultato }: { risultato: RispostaDomanda }) {
   const { data: cfg } = useApi<{ kimi_pronta?: boolean }>("/api/config");
   const [inCorso, setInCorso] = useState(false);
+  const [ai, setAi] = useState<RispostaAi | null>(null);
+  const [errore, setErrore] = useState<string | null>(null);
+  const montato = useRef(true);
+  useEffect(() => {
+    montato.current = true;
+    return () => {
+      montato.current = false;
+    };
+  }, []);
 
   async function avvia() {
     setInCorso(true);
-    onErrore(null);
+    setErrore(null);
     try {
-      const out = await postJson<RispostaAi>("/api/query/ai", { q: domanda, risultato });
-      onAi(out);
-    } catch (err) {
-      onAi(null);
-      onErrore("Approfondimento non riuscito. Riprova tra poco.");
+      // La domanda a cui risponde il risultato, non il testo che c'e' adesso nel campo.
+      const out = await postJson<RispostaAi>("/api/query/ai", { q: risultato.domanda, risultato });
+      if (montato.current) setAi(out);
+    } catch {
+      if (!montato.current) return;
+      setAi(null);
+      setErrore("Approfondimento non riuscito. Riprova tra poco.");
     } finally {
-      setInCorso(false);
+      if (montato.current) setInCorso(false);
     }
   }
 

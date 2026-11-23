@@ -2,6 +2,9 @@
 import { buildConnectionString, redact } from '../src/config.js';
 import { withClient, closePool } from '../src/db.js';
 
+// Lo stesso schema che usa src/db.js per il search_path.
+const SCHEMA = /^[a-z_][a-z0-9_]*$/.test(process.env.DB_SCHEMA || '') ? process.env.DB_SCHEMA : 'ruisearch';
+
 async function main() {
   const target = redact(buildConnectionString());
   console.log(`Connessione a ${target}`);
@@ -15,15 +18,18 @@ async function main() {
              inet_server_addr()::text         as server,
              current_setting('server_version') as postgres
     `);
-    const tables = await client.query(`
-      select count(*)::int as n
-      from information_schema.tables
-      where table_schema = 'public'
-    `);
-    const canWrite = await client.query(`
-      select has_schema_privilege(current_user, 'public', 'CREATE') as ok
-    `);
-    return { ...rows[0], tabelle: tables.rows[0].n, scrittura: canWrite.rows[0].ok };
+    const tables = await client.query(
+      `select count(*)::int as n from information_schema.tables where table_schema = $1`,
+      [SCHEMA],
+    );
+    // L'import svuota e ricarica le tabelle del registro: servono TRUNCATE e INSERT.
+    const carica = await client.query(
+      `select case when to_regclass(format('%I.intermediari', $1::text)) is null then false
+              else has_table_privilege(format('%I.intermediari', $1::text), 'TRUNCATE')
+               and has_table_privilege(format('%I.intermediari', $1::text), 'INSERT') end as ok`,
+      [SCHEMA],
+    );
+    return { ...rows[0], tabelle: tables.rows[0].n, caricamento: carica.rows[0].ok };
   });
 
   console.log(`Connesso in ${Date.now() - started} ms`);
@@ -31,11 +37,14 @@ async function main() {
   console.log(`  utente          ${info.utente}`);
   console.log(`  postgres        ${info.postgres}`);
   console.log(`  server          ${info.server}`);
-  console.log(`  tabelle public  ${info.tabelle}`);
-  console.log(`  CREATE su public ${info.scrittura ? 'consentito' : 'NEGATO'}`);
+  console.log(`  tabelle ${SCHEMA}  ${info.tabelle}`);
+  console.log(`  import registro ${info.caricamento ? 'consentito' : 'NEGATO'}`);
 
-  if (!info.scrittura) {
-    console.error('\nL\'utente non puo\' creare tabelle: il loader non potrebbe scrivere.');
+  if (!info.caricamento) {
+    console.error(
+      `\nL'utente non puo' svuotare e ricaricare ${SCHEMA}.intermediari: l'import non potrebbe scrivere. ` +
+        "(E' normale col ruolo ruisearch_api delle API: l'import usa l'utente postgres.)",
+    );
     process.exitCode = 1;
   }
 }

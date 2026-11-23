@@ -1,4 +1,10 @@
 // Ricostruisce il sotto-grafo di un intermediario dall'export IVASS gia' parsato.
+// Lo usa solo scripts/lookup-intermediario.js, per controllare la fonte senza
+// database. Stesse regole di query.js e di ricostruisci_rete_collegati():
+// solo A/B/E, RUI a 10 caratteri, livello I = diretto, II = indiretto "tramite"
+// la societa' di I livello.
+
+import { normalizzaRui, SEZIONI_ATTIVE, variantiAccenti } from './query.js';
 
 const COLONNE = {
   intermediari: [
@@ -45,22 +51,61 @@ function indicePerNumero(righe) {
   return mappa;
 }
 
-export function cercaIntermediari(intermediari, { rui, nome }) {
-  const ruiNorm = rui?.trim().toUpperCase() || null;
-  const nomeNorm = nome?.trim().toUpperCase() || null;
+function sezioneAttiva(numero) {
+  return Boolean(numero) && SEZIONI_ATTIVE.includes(numero.slice(0, 1));
+}
+
+/** Candidati A/B/E per RUI (anche senza zeri: A49819) o per nome (FORLÌ trova FORLI'). */
+export function cercaNellExport(intermediari, { rui, nome }) {
+  const ruiNorm = rui ? normalizzaRui(rui) : null;
+  const varianti = nome ? variantiAccenti(nome) : [];
   return intermediari.filter((riga) => {
+    if (!sezioneAttiva(riga.numero_iscrizione_rui)) return false;
     if (ruiNorm && riga.numero_iscrizione_rui === ruiNorm) return true;
-    if (!nomeNorm) return false;
-    const etichetta = (denominazione(riga) || '').toUpperCase();
-    return etichetta.includes(nomeNorm);
+    if (!varianti.length) return false;
+    const etichetta = (denominazione(riga) || '').toLowerCase();
+    return varianti.some((v) => etichetta.includes(v));
   });
+}
+
+/**
+ * Archi di rete da una riga di ELENCO_COLLABORATORI, come in
+ * ricostruisci_rete_collegati(): principale → I livello (diretto),
+ * societa' di I livello → II livello (diretto), principale → II livello
+ * (indiretto, tramite la societa').
+ */
+function archiDaRiga(r) {
+  const qualifica = (r.qualifica_rapporto || '').trim() || null;
+  const p = r.num_iscr_intermediario;
+  const i = r.num_iscr_collaboratori_i_liv;
+  const ii = r.num_iscr_collaboratori_ii_liv;
+  const archi = [];
+  if (r.livello === 'I' && i) archi.push({ principale: p, collegato: i, livello: 'I', tramite: null, qualifica });
+  if (i && ii) archi.push({ principale: i, collegato: ii, livello: 'I', tramite: null, qualifica });
+  if (ii) archi.push({ principale: p, collegato: ii, livello: 'II', tramite: i || null, qualifica });
+  return archi;
+}
+
+/** Un arco per coppia: vince il diretto, poi il primo tramite e la prima qualifica. */
+function senzaDoppioni(archi) {
+  const ordinati = [...archi].sort((a, b) => a.livello.localeCompare(b.livello)
+    || String(a.tramite ?? '').localeCompare(String(b.tramite ?? ''))
+    || String(a.qualifica ?? '').localeCompare(String(b.qualifica ?? '')));
+  const visti = new Map();
+  for (const a of ordinati) {
+    const chiave = `${a.principale}|${a.collegato}`;
+    if (!visti.has(chiave)) visti.set(chiave, a);
+  }
+  return [...visti.values()];
 }
 
 /**
  * Dato un numero RUI, restituisce anagrafica, sedi, siti, mandati, cariche
  * e i rapporti di collaborazione (come collaboratore e come principale).
  */
-export function sottoGrafo(tabelle, numero) {
+export function sottoGrafo(tabelle, rui) {
+  const numero = normalizzaRui(rui);
+  if (!sezioneAttiva(numero)) return null;
   const intermediari = tabelle.intermediari.map((r) => oggetto(COLONNE.intermediari, r));
   const perNumero = indicePerNumero(intermediari);
   const soggetto = (perNumero.get(numero) || [])[0];
@@ -89,31 +134,25 @@ export function sottoGrafo(tabelle, numero) {
       societa: denominazione((perNumero.get(r.numero_iscrizione_rui_pg) || [])[0] || {}),
     }));
 
-  const collaboratori = tabelle.collaboratori.map((r) => oggetto(COLONNE.collaboratori, r));
-  const comeCollaboratore = [];
-  const comePrincipale = [];
+  // Solo gli archi che toccano il soggetto, con entrambi gli estremi A/B/E in registro.
+  const valido = (n) => sezioneAttiva(n) && perNumero.has(n);
+  const archi = senzaDoppioni(
+    tabelle.collaboratori
+      .map((r) => oggetto(COLONNE.collaboratori, r))
+      .filter((r) => r.num_iscr_intermediario === numero
+        || r.num_iscr_collaboratori_i_liv === numero
+        || r.num_iscr_collaboratori_ii_liv === numero)
+      .flatMap(archiDaRiga)
+      .filter((a) => (a.principale === numero || a.collegato === numero)
+        && a.principale !== a.collegato
+        && valido(a.principale) && valido(a.collegato)),
+  );
+  const comeCollaboratore = archi.filter((a) => a.collegato === numero);
+  const comePrincipale = archi.filter((a) => a.principale === numero);
   const numeriCollegati = new Set();
-
-  for (const r of collaboratori) {
-    const eCollaboratore =
-      r.num_iscr_collaboratori_i_liv === numero ||
-      r.num_iscr_collaboratori_ii_liv === numero;
-    const ePrincipale = r.num_iscr_intermediario === numero;
-    if (!eCollaboratore && !ePrincipale) continue;
-
-    const collegato = eCollaboratore ? r.num_iscr_intermediario : r.num_iscr_collaboratori_i_liv;
-    if (collegato) numeriCollegati.add(collegato);
-    if (r.num_iscr_collaboratori_ii_liv) numeriCollegati.add(r.num_iscr_collaboratori_ii_liv);
-
-    const arco = {
-      livello: r.livello,
-      qualifica: (r.qualifica_rapporto || '').trim(),
-      intermediario: r.num_iscr_intermediario,
-      collaboratore_i: r.num_iscr_collaboratori_i_liv,
-      collaboratore_ii: r.num_iscr_collaboratori_ii_liv,
-    };
-    if (eCollaboratore) comeCollaboratore.push(arco);
-    if (ePrincipale) comePrincipale.push(arco);
+  for (const a of archi) {
+    numeriCollegati.add(a.principale === numero ? a.collegato : a.principale);
+    if (a.tramite) numeriCollegati.add(a.tramite);
   }
 
   const collegati = [...numeriCollegati]

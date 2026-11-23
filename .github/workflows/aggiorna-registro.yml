@@ -4,7 +4,8 @@
 # "Run workflow".
 #
 # Serve il secret DATABASE_URL del repository: connection string del pooler
-# Supabase in *session mode* (porta 5432), perche' il caricamento usa COPY.
+# Supabase in *session mode* (porta 5432), perche' il caricamento usa COPY e
+# tiene un advisory lock per tutta la durata (in transaction mode non va).
 
 name: Aggiorna registro IVASS
 
@@ -38,9 +39,13 @@ jobs:
         run: npm install --omit=dev --no-audit --no-fund --workspaces=false
 
       - name: Scarica e carica il registro
+        # Sotto i 40 minuti del job: se scade e' questo passo a fallire e il
+        # passo finale ha ancora il tempo di chiudere la riga di import_runs.
+        timeout-minutes: 35
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DB_POOL_MAX: "2"
+          RUI_ID_CORSA_FILE: ${{ runner.temp }}/import-run-id
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "::error::Manca il secret DATABASE_URL del repository."
@@ -51,3 +56,14 @@ jobs:
           else
             node scripts/import.js
           fi
+
+      - name: Segna l'aggiornamento come interrotto
+        if: failure() || cancelled()
+        timeout-minutes: 3
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DB_POOL_MAX: "1"
+          RUI_ID_CORSA_FILE: ${{ runner.temp }}/import-run-id
+        run: |
+          if [ -z "$DATABASE_URL" ]; then exit 0; fi
+          node scripts/chiudi-import-interrotto.js

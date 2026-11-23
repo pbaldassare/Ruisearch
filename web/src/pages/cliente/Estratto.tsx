@@ -7,12 +7,16 @@ import { useAuth } from "@/auth/AuthContext";
 import { useApi } from "@/lib/useApi";
 import { formatData, formatNumero } from "@/lib/format";
 import { qs } from "@/api";
+import { Rapporto } from "./Rapporto";
 
 type IntermediarioRete = {
   rui_collegato: string;
   denominazione: string | null;
   sezione: string | null;
   qualifica: string | null;
+  livello: string | null;
+  tramite?: string | null;
+  tramite_denominazione?: string | null;
   inoperativo: boolean | null;
 };
 
@@ -30,6 +34,8 @@ type Estratto = {
     mandati: number;
     sedi: number;
     rete: number;
+    diretti: number;
+    indiretti: number;
     operativi: number;
     inoperativi: number;
     sezione_e: number;
@@ -42,7 +48,7 @@ type Estratto = {
 };
 
 const KPI = [
-  { label: "Collaboratori diretti", chiave: "rete" as const, icon: Users },
+  { label: "Collaboratori diretti", chiave: "diretti" as const, icon: Users },
   { label: "Rapporti in registro", chiave: "collaborazioni" as const, icon: GitBranch },
   { label: "Mandati", chiave: "mandati" as const, icon: Handshake },
   { label: "Sedi", chiave: "sedi" as const, icon: Building2 },
@@ -53,8 +59,18 @@ const COLONNE: Colonna<IntermediarioRete>[] = [
   { id: "rui", etichetta: "RUI", cella: (r) => r.rui_collegato },
   { id: "sez", etichetta: "Sez.", cella: (r) => <BadgeSezione sezione={r.sezione} /> },
   { id: "qual", etichetta: "Qualifica", cella: (r) => r.qualifica || "—" },
+  {
+    id: "rap",
+    etichetta: "Rapporto",
+    cella: (r) => <Rapporto livello={r.livello} tramite={r.tramite} tramiteNome={r.tramite_denominazione} />,
+  },
   { id: "stato", etichetta: "Stato", cella: (r) => <BadgeStato inoperativo={r.inoperativo} /> },
 ];
+
+/** Nel registro molti siti sono senza schema ("www.agenzia.it"): senza https:// il link sarebbe relativo. */
+function hrefSito(url: string): string {
+  return /^https?:\/\//i.test(url) ? url : `https://${url}`;
+}
 
 /** Una riga per persona con tutti i suoi ruoli. */
 function raggruppa(cariche: Estratto["cariche"]): Array<[string, string[]]> {
@@ -109,8 +125,12 @@ export function EstrattoClientePage() {
         })}
       </div>
       <p className="text-sm text-muted-foreground">
-        I collaboratori diretti sono agenti, broker e collaboratori collegati alla tua iscrizione nel RUI, contati una
-        volta sola. Non comprendono la rete di altre società del tuo gruppo.
+        I collaboratori diretti sono agenti, broker e collaboratori collegati direttamente alla tua iscrizione nel RUI,
+        contati una volta sola.
+        {data?.numeri.indiretti
+          ? ` In più ne hai ${formatNumero(data.numeri.indiretti)} indiretti, iscritti tramite i tuoi collaboratori.`
+          : ""}{" "}
+        Non comprendono la rete di altre società del tuo gruppo.
       </p>
       {caricamento ? <SkeletonCard righe={3} /> : null}
       {data?.sedi?.length ? (
@@ -133,7 +153,7 @@ export function EstrattoClientePage() {
           <ul className="space-y-1 text-sm">
             {data.siti_internet.map((url) => (
               <li key={url}>
-                <a className="text-primary hover:underline" href={url} target="_blank" rel="noreferrer">
+                <a className="text-primary hover:underline" href={hrefSito(url)} target="_blank" rel="noreferrer">
                   {url}
                 </a>
               </li>

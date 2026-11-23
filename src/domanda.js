@@ -1,7 +1,19 @@
 // Interpreta domande in italiano sulle dimensioni del registro.
 // Niente modello AI: pattern + SQL. Ambiguo → lista candidati.
 
-import { cercaIntermediari, mandatiViaPrincipali, numeriDi, rete, sembraRui } from './query.js';
+import { codiceProvincia } from './mercato.js';
+import {
+  cercaIntermediari,
+  escapeLike,
+  mandatiViaPrincipali,
+  numeriDi,
+  numeroSenzaSezione,
+  patternContiene,
+  patternEsatto,
+  rete,
+  sembraRui,
+  sqlInoperativo,
+} from './query.js';
 
 function pulisci(testo) {
   return String(testo || '')
@@ -23,7 +35,7 @@ export { mandatiViaPrincipali, numeriDi };
 
 export async function lavoraConCompagnia(client, rui, compagnia, { soloAgenti = false } = {}) {
   const reteSoggetto = await rete(client, rui);
-  const like = `%${compagnia}%`;
+  const like = `%${escapeLike(compagnia)}%`;
   const principali = reteSoggetto.principali.filter((p) => !soloAgenti || p.sezione === 'A');
   const ruiList = [
     rui,
@@ -64,7 +76,7 @@ const ETICHETTA_SEZIONE = { A: 'agenti', B: 'broker', E: 'collaboratori' };
  * Restituisce null se la frase non contiene nessun filtro.
  */
 export function leggiFiltri(testo) {
-  const t = ` ${String(testo || '').toLowerCase()} `;
+  const t = ` ${String(testo || '').toLowerCase().replace(/[’`]/g, "'")} `;
   const filtri = {};
 
   const sezioni = new Set();
@@ -73,12 +85,21 @@ export function leggiFiltri(testo) {
   if (/\bcollaborator[ie]\b|\bsezione e\b/.test(t)) sezioni.add('E');
   if (sezioni.size) filtri.sezioni = [...sezioni];
 
-  const prov = t.match(/\bprovincia\s+(?:di\s+)?([a-z]{2})\b/);
-  if (prov) filtri.provincia = prov[1].toUpperCase();
+  // "provincia di BS" o "provincia di Milano": sigla o nome, mai la parola "di".
+  const prov = t.match(
+    /\bprovincia\s+(?:di\s+)?([a-zà-ù' ]+?)(?=\s+(?:con|operativ[ioe]|inoperativ[ioe]|e|a|in|nel|nella)\s|\s*$)/,
+  );
+  if (prov) {
+    const codice = codiceProvincia(prov[1]);
+    if (codice) filtri.provincia = codice;
+  }
 
-  // "sezione a" non e' la preposizione "a": la tolgo prima di cercare il comune.
-  const senzaSezione = t.replace(/\bsezione\s+[abe]\b/g, ' ');
-  const comune = senzaSezione.match(
+  // "sezione a" non e' la preposizione "a" e "con sede a Milano" e' il comune,
+  // non una compagnia: li tolgo prima di cercare comune e compagnia.
+  const pulito = t
+    .replace(/\bsezione\s+[abe]\b/g, ' ')
+    .replace(/\bcon\s+sede(?:\s+(?:legale|operativa|secondaria))?(?=\s)/g, ' ');
+  const comune = pulito.match(
     /\b(?:comune\s+di|a)\s+([a-zà-ù' ]{3,}?)(?=\s+(?:con|operativ|inoperativ|in\s+provincia)\b|\s*$)/,
   );
   if (comune && !/\b(provincia|mandat)/.test(comune[1])) filtri.comune = comune[1].trim();
@@ -86,11 +107,15 @@ export function leggiFiltri(testo) {
   if (/\binoperativ[ioe]\b/.test(t)) filtri.inoperativo = true;
   else if (/\boperativ[ioe]\b/.test(t)) filtri.inoperativo = false;
 
-  if (/\baziend[ae]\b|\bsociet[aà]\b|\bpersone giuridiche\b/.test(t)) filtri.personaGiuridica = true;
-  else if (/\bpersone( fisiche)?\b/.test(t)) filtri.personaGiuridica = false;
+  // Niente \b dopo una lettera accentata: per JS "à" non e' una lettera di parola.
+  if (/\baziend[ae](?![a-zà-ù])|\bsociet(?:a|à)(?![a-zà-ù])|\bpersone giuridiche\b/.test(t)) {
+    filtri.personaGiuridica = true;
+  } else if (/\bpersone( fisiche)?\b/.test(t)) {
+    filtri.personaGiuridica = false;
+  }
 
-  const comp = t.match(
-    /\bcon\s+(?:il\s+|un\s+)?(?:mandat[oi]\s+)?(?:con\s+|di\s+|per\s+)?([a-z0-9][a-z0-9 .&'-]*?)(?=\s+(?:in|nella|a|nel|del|della|operativ[ioe]|inoperativ[ioe])\b|\s*$)/,
+  const comp = pulito.match(
+    /\bcon\s+(?:(?:il|lo|la|le|gli|i|un|una)\s+)?(?:mandat[oi]\s+)?(?:con\s+|di\s+|per\s+)?(?:(?:il|lo|la|le|gli|i)\s+)?([a-z0-9à-ù][a-z0-9à-ù .&'-]*?)(?=\s+(?:in|nella|a|nel|del|della|operativ[ioe]|inoperativ[ioe])\s|\s*$)/,
   );
   if (comp && comp[1].trim().length >= 2) filtri.compagnia = comp[1].trim();
 
@@ -115,7 +140,7 @@ export async function elencoFiltrato(client, filtri, { limite = 50 } = {}) {
   const where = [];
   if (filtri.inoperativo != null) {
     params.push(filtri.inoperativo);
-    where.push(`coalesce(i.inoperativo, false) = $${params.length}`);
+    where.push(`i.inoperativo = $${params.length}`);
   }
   if (filtri.personaGiuridica != null) {
     params.push(filtri.personaGiuridica);
@@ -127,25 +152,29 @@ export async function elencoFiltrato(client, filtri, { limite = 50 } = {}) {
       where s.numero_iscrizione_int = i.numero_iscrizione_rui and s.provincia_sede = $${params.length})`);
   }
   if (filtri.comune) {
-    params.push(filtri.comune);
+    // FORLI', CIRIÈ: il comune si cerca con l'accento, con l'apostrofo e senza.
+    params.push(patternEsatto(filtri.comune));
     where.push(`exists (select 1 from sedi s
-      where s.numero_iscrizione_int = i.numero_iscrizione_rui and s.comune_sede ilike $${params.length})`);
+      where s.numero_iscrizione_int = i.numero_iscrizione_rui
+        and s.comune_sede ilike any($${params.length}::text[]))`);
   }
   if (filtri.compagnia) {
-    params.push(`%${filtri.compagnia}%`);
+    params.push(patternContiene(filtri.compagnia));
     where.push(`exists (select 1 from mandati m
       where m.matricola = i.numero_iscrizione_rui
-        and (m.ragione_sociale ilike $${params.length} or m.codice_compagnia ilike $${params.length}))`);
+        and (m.ragione_sociale ilike any($${params.length}::text[])
+          or m.codice_compagnia ilike any($${params.length}::text[])))`);
   }
   params.push(limite);
   const { rows } = await client.query(
     `
     with i as (
       select distinct on (numero_iscrizione_rui)
-        numero_iscrizione_rui, denominazione, sezione, inoperativo, persona_giuridica
+        numero_iscrizione_rui, denominazione, sezione,
+        ${sqlInoperativo('intermediari')} as inoperativo, persona_giuridica
       from intermediari
       where sezione = any($1::text[])
-      order by numero_iscrizione_rui, inoperativo, oss
+      order by numero_iscrizione_rui, 4, oss
     )
     select i.numero_iscrizione_rui, i.denominazione, i.sezione, i.inoperativo,
            count(*) over () as totale
@@ -202,6 +231,56 @@ export async function interpretaDomanda(client, testoGrezzo) {
     };
   }
 
+  // "quanti agenti ha consulbrokers": la rete del soggetto per sezione, non
+  // l'elenco di tutti gli agenti del registro.
+  m = testo.match(/^quanti\s+(agenti|broker|mediatori)\s+ha\s+(.+)$/i);
+  if (m) {
+    const sezioneRete = /^agent/i.test(m[1]) ? 'A' : 'B';
+    const metrica = sezioneRete === 'A' ? 'agenti' : 'broker';
+    const { soggetti, query } = await risolviSoggetto(client, m[2]);
+    const scelta = unaRisposta(soggetti, query);
+    if (!scelta.ok) return { tipo: 'conteggio', domanda: testo, ...scelta };
+    const { denominazione, numero_iscrizione_rui: rui } = scelta.scelto;
+    const [conta, numeri] = await Promise.all([
+      client.query(
+        `
+        select sezione_collegato as sezione, count(*)::int as totale,
+               count(*) filter (where livello = 'I')::int as diretti
+        from rete_collegati
+        where principale = $1
+        group by 1
+        `,
+        [rui],
+      ),
+      numeriDi(client, rui),
+    ]);
+    const perSezione = new Map(conta.rows.map((r) => [r.sezione, r]));
+    const { totale = 0, diretti = 0 } = perSezione.get(sezioneRete) || {};
+    const rete_ = conta.rows.reduce((s, r) => ({ totale: s.totale + r.totale, diretti: s.diretti + r.diretti }),
+      { totale: 0, diretti: 0 });
+    const it = (n) => n.toLocaleString('it-IT');
+    return {
+      tipo: 'conteggio',
+      domanda: testo,
+      ok: true,
+      scelto: scelta.scelto,
+      candidati: scelta.candidati,
+      metrica,
+      valore: totale,
+      diretti,
+      indiretti: totale - diretti,
+      risposta: `${denominazione}: ${it(totale)} ${metrica} in rete`
+        + (totale - diretti > 0 ? ` (${it(diretti)} diretti, ${it(totale - diretti)} tramite una società di I livello).` : '.'),
+      // Nel RUI i collaboratori sono quasi sempre in sezione E: senza questa nota
+      // "0 agenti" sembrerebbe una rete vuota.
+      nota: totale === 0 && rete_.totale > 0
+        ? `Nel registro i collaboratori sono iscritti in sezione E, non come ${metrica}: ${denominazione} ne ha `
+          + `${it(rete_.totale)} in rete (${it(rete_.diretti)} diretti, ${it(rete_.totale - rete_.diretti)} indiretti).`
+        : undefined,
+      numeri,
+    };
+  }
+
   m = testo.match(/^(.+?)\s+lavora\s+con\s+(?:gli\s+)?agenti\s+con\s+(.+)$/i);
   if (m) {
     const { soggetti, query } = await risolviSoggetto(client, m[1]);
@@ -243,7 +322,7 @@ export async function interpretaDomanda(client, testoGrezzo) {
   }
 
   m = testo.match(/^(?:cerca|scheda)\s+(.+)$/i);
-  if (m || sembraRui(testo)) {
+  if (m || sembraRui(testo) || numeroSenzaSezione(testo)) {
     const q = m ? m[1] : testo;
     const { soggetti } = await risolviSoggetto(client, q);
     return {

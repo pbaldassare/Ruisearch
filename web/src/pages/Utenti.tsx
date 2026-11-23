@@ -33,7 +33,8 @@ type Creato = {
   operatore: { email: string; nome: string | null };
 };
 
-type Riga = Operatore & { societa: string; rui: string; sezione: string | null };
+// Una riga per operatore; una società senza operatori ha una riga sua (senzaOperatori), con l'azione per crearne uno.
+type Riga = Operatore & { societa: string; rui: string; sezione: string | null; senzaOperatori?: boolean };
 
 type Conferma = { id: number; azione: "password" | "elimina" } | null;
 
@@ -58,8 +59,38 @@ export function UtentiPage() {
   const candidati = (trovati?.items ?? []).filter((i) => i.sezione === "A" || i.sezione === "B");
 
   const righe: Riga[] = (data?.utenti ?? []).flatMap((c) =>
-    c.operatori.map((o) => ({ ...o, societa: c.denominazione, rui: c.rui, sezione: c.sezione })),
+    c.operatori.length
+      ? c.operatori.map((o) => ({ ...o, societa: c.denominazione, rui: c.rui, sezione: c.sezione }))
+      : [{
+          id: -c.id,
+          email: "",
+          nome: null,
+          attivo: c.attivo,
+          societa: c.denominazione,
+          rui: c.rui,
+          sezione: c.sezione,
+          senzaOperatori: true,
+        }],
   );
+
+  /** Precompila "Nuovo accesso cliente" con la società della riga. */
+  function nuovoAccessoPer(r: Riga) {
+    setScelto({
+      oss: 0,
+      numero_iscrizione_rui: r.rui,
+      sezione: r.sezione ?? "",
+      denominazione: r.societa,
+      data_iscrizione: null,
+      inoperativo: false,
+      persona_giuridica: true,
+      comune_nascita: null,
+      provincia_nascita: null,
+    });
+    setCerca("");
+    setMessaggio(null);
+    setErroreAzione(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   async function azione(fn: () => Promise<string>) {
     setErroreAzione(null);
@@ -96,12 +127,15 @@ export function UtentiPage() {
     {
       id: "op",
       etichetta: "Operatore",
-      cella: (r) => (
-        <div className="min-w-0">
-          <p className="font-semibold">{r.email}</p>
-          {r.nome ? <p className="text-xs text-muted-foreground">{r.nome}</p> : null}
-        </div>
-      ),
+      cella: (r) =>
+        r.senzaOperatori ? (
+          <p className="text-muted-foreground">Nessun operatore</p>
+        ) : (
+          <div className="min-w-0">
+            <p className="font-semibold">{r.email}</p>
+            {r.nome ? <p className="text-xs text-muted-foreground">{r.nome}</p> : null}
+          </div>
+        ),
     },
     {
       id: "soc",
@@ -118,23 +152,35 @@ export function UtentiPage() {
     {
       id: "stato",
       etichetta: "Accesso",
-      cella: (r) => (
-        <span
-          className={cn(
-            "inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
-            r.attivo ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground",
-          )}
-        >
-          {r.attivo ? "Attivo" : "Disattivato"}
-        </span>
-      ),
+      cella: (r) =>
+        r.senzaOperatori ? (
+          <span className="inline-flex rounded-full bg-secondary px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+            Nessun accesso
+          </span>
+        ) : (
+          <span
+            className={cn(
+              "inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold",
+              r.attivo ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground",
+            )}
+          >
+            {r.attivo ? "Attivo" : "Disattivato"}
+          </span>
+        ),
     },
     {
       id: "azioni",
       etichetta: "",
       classe: "text-right",
       cella: (r) =>
-        conferma?.id === r.id ? (
+        r.senzaOperatori ? (
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" disabled={inCorso} onClick={() => nuovoAccessoPer(r)}>
+              <Plus className="h-4 w-4" />
+              Crea accesso
+            </Button>
+          </div>
+        ) : conferma?.id === r.id ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="text-xs font-semibold">
               {conferma.azione === "elimina" ? "Eliminare questo accesso?" : "Generare una nuova password? Quella attuale smette di funzionare."}
@@ -151,7 +197,8 @@ export function UtentiPage() {
                     return `Accesso di ${r.email} eliminato. I dati della società restano.`;
                   }
                   const out = await postJson<{ password: string }>("/api/admin/utenti/password", { email: r.email });
-                  return `Nuova password di ${r.email}: ${out.password} (visibile solo ora: comunicala al cliente).`;
+                  const spento = r.attivo ? "" : " L'accesso resta disattivato: riattivalo per farlo entrare.";
+                  return `Nuova password di ${r.email}: ${out.password} (visibile solo ora: comunicala al cliente).${spento}`;
                 })
               }
             >

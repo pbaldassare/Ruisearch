@@ -36,11 +36,16 @@ function token(): string | null {
   }
 }
 
-function sessioneScaduta() {
+/** Torna al login, poi di nuovo alla pagina in cui si era. */
+function sessioneScaduta(conToken: boolean) {
   cancellaSessione();
-  if (!window.location.pathname.startsWith("/login")) {
-    window.location.assign(`/login?scaduta=1`);
-  }
+  const { pathname, search } = window.location;
+  if (pathname.startsWith("/login")) return;
+  // Senza token si torna al login solo dall'area riservata: sulle pagine pubbliche resta l'errore.
+  if (!conToken && !/^\/(app|cliente)(\/|$)/.test(pathname)) return;
+  const parametri = new URLSearchParams({ next: pathname + search });
+  if (conToken) parametri.set("scaduta", "1");
+  window.location.assign(`/login?${parametri}`);
 }
 
 async function richiesta(path: string, init: RequestInit = {}): Promise<Response> {
@@ -53,7 +58,9 @@ async function richiesta(path: string, init: RequestInit = {}): Promise<Response
   } catch {
     throw new ApiError(0, "Connessione assente: controlla la rete e riprova.");
   }
-  if (risposta.status === 401 && t) sessioneScaduta();
+  // 401 = sessione scaduta, revocata o chiusa in un'altra scheda (allora il token qui non c'e' piu').
+  // Il login sbagliato risponde 401 anche lui, ma resta sulla pagina con il suo messaggio.
+  if (risposta.status === 401 && !path.startsWith("/api/auth/login")) sessioneScaduta(Boolean(t));
   return risposta;
 }
 
@@ -150,7 +157,18 @@ export type Overview = {
   collaborazioni: string | number;
   sedi: string | number;
   mandati: string | number;
+  /** L'ultimo tentativo di aggiornamento, anche fallito o in corso. */
   ultimo_import: ImportRun | null;
+  /** L'ultimo caricamento che ha davvero sostituito il registro: i dati che si stanno guardando. */
+  dati_in_uso?: ImportRun | null;
+};
+
+/** Risultato della ricerca pubblica della landing: solo il minimo, senza login. */
+export type RisultatoPubblico = {
+  numero_iscrizione_rui: string;
+  denominazione: string;
+  sezione: string;
+  inoperativo: boolean;
 };
 
 export type ImportRun = {
@@ -167,13 +185,15 @@ export type ImportRun = {
 export type FaseAggiornamento = "download" | "validazione" | "caricamento" | "rete" | "completato";
 
 export type StatoAggiornamento = {
+  /** Riga di import_runs (online: l'ultima; in locale: quella avviata da questo server). */
+  id?: number | null;
   in_corso: boolean;
   fase: FaseAggiornamento | null;
   percentuale: number | null;
   messaggio: string | null;
   iniziato_il: string | null;
   concluso_il: string | null;
-  esito: "completato" | "identico" | "validato" | "fallito" | null;
+  esito: "completato" | "identico" | "incompleto" | "validato" | "fallito" | null;
   errore: string | null;
   log: string[];
   /** true online: il caricamento gira su GitHub Actions, non sul server. */
@@ -182,6 +202,8 @@ export type StatoAggiornamento = {
   avviabile?: boolean;
   /** Online: pagina del workflow su GitHub. */
   link?: string;
+  /** Online, solo nella risposta all'avvio: quando GitHub ha accettato la richiesta. */
+  avviato_il?: string;
 };
 
 export type Collegato = {

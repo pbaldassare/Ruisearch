@@ -4,9 +4,13 @@
 // CSV; le colonne generate (sezione, denominazione, persona_giuridica) non
 // compaiono perche' Postgres le calcola da solo.
 //
+// I nomi sono quelli dell'intestazione del CSV in minuscolo: l'import confronta
+// l'intestazione con questo elenco (nomi, ordine, numero) e si ferma se la
+// fonte cambia formato (src/parse.js, verificaIntestazione).
+//
 // L'intestazione di ELENCO_INTERMEDIARI dichiara 15 colonne ma le righe ne
-// hanno 20: le ultime cinque, prive di nome nella fonte, riguardano gli
-// intermediari comunitari e sono ricostruite dai valori osservati.
+// hanno 20: le ultime cinque (`colonneSenzaNome`), prive di nome nella fonte,
+// riguardano gli intermediari comunitari e sono ricostruite dai valori osservati.
 
 const T = 'testo';
 const D = 'data';
@@ -17,6 +21,7 @@ export const TABELLE = [
     file: 'ELENCO_INTERMEDIARI.csv',
     tabella: 'intermediari',
     righeAttese: 200000,
+    colonneSenzaNome: 5,
     colonne: [
       ['oss', T],
       ['inoperativo', B],

@@ -14,7 +14,6 @@
     "check-db": "node scripts/check-connection.js",
     "import": "node scripts/import.js",
     "import:dry": "node scripts/import.js --dry-run",
-    "import:rest": "node scripts/import-rest.js",
     "lookup": "node scripts/lookup-intermediario.js",
     "cerca": "node scripts/cerca.js",
     "rete": "node scripts/ricostruisci-rete.js",
@@ -23,7 +22,6 @@
     "dev:web": "npm run dev -w ruisearch-web",
     "build": "npm run build -w ruisearch-web",
     "preview": "npm run preview -w ruisearch-web -- --host 0.0.0.0 --port 4173",
-    "start": "npm run build && node scripts/serve-web.js",
     "deploy:api": "node scripts/prepara-edge.js && supabase functions deploy ruisearch-api --project-ref moyfkdwsghidkcifesrg --no-verify-jwt --use-api"
   },
   "dependencies": {

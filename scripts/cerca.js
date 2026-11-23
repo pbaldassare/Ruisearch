@@ -67,6 +67,7 @@ function aiuto() {
   npm run cerca -- sedi [--q TEXT] [--provincia BS]
   npm run cerca -- mandati [--q TEXT]
   npm run cerca -- cariche [--q TEXT]
+  npm run cerca -- domanda --q "quanti agenti ha consulbrokers"
   npm run cerca -- import
 
 Solo sezioni A, B, E. Nessun aggiornamento da qui.`);
@@ -107,7 +108,8 @@ async function main(azioneScelta) {
         if (!rui) throw new Error('indica --rui NUMERO');
         return rete(client, rui, { sezione });
       case 'sedi':
-        return elencoSedi(client, { q, provincia, sezione, dopoOss, limite });
+        // elencoSedi riconosce la sigla di provincia nel testo (come /sedi?provincia=).
+        return elencoSedi(client, { q: q || provincia, sezione, dopoOss, limite });
       case 'mandati':
         return elencoMandati(client, { q, sezione, dopoOss, limite });
       case 'cariche':

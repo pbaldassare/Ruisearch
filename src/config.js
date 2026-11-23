@@ -9,25 +9,25 @@ if (typeof process.loadEnvFile === 'function' && existsSync('.env')) {
 const REQUIRED_HINT =
   'Copia .env.example in .env e valorizza SUPABASE_DB_PASSWORD (oppure DATABASE_URL).';
 
-const REST_HINT =
-  'Copia .env.example in .env e valorizza SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY.';
-
-/** Credenziali per la Data API (PostgREST). La service role non va committata. */
-export function restConfig() {
-  const url = (process.env.SUPABASE_URL || '').trim().replace(/\/$/, '');
-  const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
-  if (!url) throw new Error(`SUPABASE_URL non impostata. ${REST_HINT}`);
-  if (!serviceRoleKey) throw new Error(`SUPABASE_SERVICE_ROLE_KEY non impostata. ${REST_HINT}`);
-  return { url, serviceRoleKey };
-}
-
 /**
  * Costruisce la connection string verso il database Supabase.
  * DATABASE_URL, se presente, vince su tutto il resto.
+ *
+ * Con `edge` (Edge Function) vale solo DATABASE_URL, la connessione col ruolo
+ * dedicato ruisearch_api: niente ripiego su SUPABASE_DB_URL, che Supabase
+ * fornisce in automatico ma con l'utente postgres.
  */
-export function buildConnectionString() {
-  // SUPABASE_DB_URL e' fornita in automatico alle Edge Function di Supabase.
-  const explicit = process.env.DATABASE_URL?.trim() || process.env.SUPABASE_DB_URL?.trim();
+export function buildConnectionString({ edge = false } = {}) {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (databaseUrl) return databaseUrl;
+  if (edge) {
+    throw new Error(
+      'DATABASE_URL non impostata sulla Edge Function: va impostata come segreto (ruolo ruisearch_api), ' +
+        'non si ripiega su SUPABASE_DB_URL (utente postgres).',
+    );
+  }
+  // Fuori dalla Edge (terminale, GitHub Actions) resta il ripiego su SUPABASE_DB_URL se qualcuno la imposta.
+  const explicit = process.env.SUPABASE_DB_URL?.trim();
   if (explicit) return explicit;
 
   const ref = process.env.SUPABASE_PROJECT_REF?.trim();
@@ -40,7 +40,8 @@ export function buildConnectionString() {
   const secret = encodeURIComponent(password);
 
   if (mode === 'pooler') {
-    const region = (process.env.SUPABASE_REGION || 'eu-west-1').trim();
+    // Il progetto moyfkdwsghidkcifesrg sta a Francoforte (eu-central-1).
+    const region = (process.env.SUPABASE_REGION || 'eu-central-1').trim();
     // I progetti recenti stanno sul cluster aws-1, quelli vecchi su aws-0:
     // il valore giusto e' in Dashboard > Connect > Session pooler.
     const cluster = (process.env.SUPABASE_POOLER_CLUSTER || 'aws-1').trim();

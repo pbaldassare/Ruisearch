@@ -8,12 +8,81 @@ import { getPool } from './db.js';
 
 export const SEZIONI_ATTIVE = Object.freeze(['A', 'B', 'E']);
 
-export function normalizzaRui(valore) {
+function compatta(valore) {
   return String(valore || '').trim().toUpperCase().replace(/\s+/g, '');
 }
 
+/** RUI come nel registro: lettera + 9 cifre. "a49819" diventa "A000049819". */
+export function normalizzaRui(valore) {
+  const s = compatta(valore);
+  const m = s.match(/^([A-Z])(\d{1,9})$/);
+  return m ? m[1] + m[2].padStart(9, '0') : s;
+}
+
 export function sembraRui(valore) {
-  return /^[ABE][0-9]{5,}$/.test(normalizzaRui(valore));
+  return /^[ABE][0-9]{5,}$/.test(compatta(valore));
+}
+
+/** Solo cifre ("000049819", "49819"): numero RUI senza lettera, da cercare in ogni sezione. */
+export function numeroSenzaSezione(valore) {
+  const s = compatta(valore);
+  return /^\d{5,9}$/.test(s) ? s.padStart(9, '0') : null;
+}
+
+/** % e _ scritti dall'utente non devono fare da jolly in ILIKE. */
+export function escapeLike(testo) {
+  return String(testo ?? '').replace(/[\\%_]/g, '\\$&');
+}
+
+const SENZA_ACCENTO = { à: 'a', á: 'a', è: 'e', é: 'e', ì: 'i', í: 'i', ò: 'o', ó: 'o', ù: 'u', ú: 'u' };
+const CON_ACCENTO = { a: 'à', e: 'è', i: 'ì', o: 'ò', u: 'ù' };
+
+/**
+ * Il registro scrive gli accenti a volte con l'apostrofo (FORLI', CANTU'), a volte
+ * con la lettera accentata (CIRIÈ): si cerca il testo com'e', con l'apostrofo al
+ * posto dell'accento, senza accento e, se l'utente ha scritto l'apostrofo, accentato.
+ */
+export function variantiAccenti(testo) {
+  const t = String(testo ?? '').trim().toLowerCase().replace(/[’`]/g, "'");
+  if (!t) return [];
+  const apostrofo = t.replace(/[àáèéìíòóùú]/g, (c) => `${SENZA_ACCENTO[c]}'`);
+  const senza = t.replace(/[àáèéìíòóùú]/g, (c) => SENZA_ACCENTO[c]);
+  const accentato = t.replace(/([aeiou])'(?=\s|$)/g, (_, v) => CON_ACCENTO[v]);
+  return [...new Set([t, apostrofo, senza, accentato])];
+}
+
+/** Pattern ILIKE "contiene" per ogni variante, con % e _ neutralizzati. */
+export function patternContiene(testo) {
+  return variantiAccenti(testo).map((v) => `%${escapeLike(v)}%`);
+}
+
+/** Pattern ILIKE "uguale" (senza jolly) per ogni variante. */
+export function patternEsatto(testo) {
+  return variantiAccenti(testo).map(escapeLike);
+}
+
+function patternIniziaCon(testo) {
+  return variantiAccenti(testo).map((v) => `${escapeLike(v)}%`);
+}
+
+/**
+ * Inoperativo secondo il registro oppure perche' la data di inizio inoperativita'
+ * e' gia' arrivata: il flag si aggiorna solo con l'import successivo.
+ */
+export function sqlInoperativo(alias) {
+  return `(coalesce(${alias}.inoperativo, false)
+    or coalesce(${alias}.data_inizio_inoperativita <= current_date, false))`;
+}
+
+/** Cursore dopo_oss: solo un numero, altrimenti 400 invece di un errore del database. */
+function ossCursore(valore) {
+  const s = String(valore).trim();
+  if (!/^\d{1,18}$/.test(s)) {
+    const errore = new Error(`dopo_oss non valido: ${valore}`);
+    errore.statusCode = 400;
+    throw errore;
+  }
+  return s;
 }
 
 export function sezioniRichieste(sezione) {
@@ -49,14 +118,25 @@ function manca(rui) {
 function anagLaterale(alias, colonnaRui, { obbligatoria = true } = {}) {
   return `
     ${obbligatoria ? 'join' : 'left join'} lateral (
-      select x.numero_iscrizione_rui, x.sezione, x.denominazione, x.inoperativo
+      select x.numero_iscrizione_rui, x.sezione, x.denominazione, ${sqlInoperativo('x')} as inoperativo
       from intermediari x
       where x.numero_iscrizione_rui = ${colonnaRui}
         and x.sezione = any($1::text[])
-      order by x.inoperativo, x.oss
+      order by 4, x.oss
       limit 1
     ) ${alias} on true`;
 }
+
+/** Nome della societa' di I livello attraverso cui passa un arco di II livello. */
+const ANAG_TRAMITE = `
+    left join lateral (
+      select x.denominazione
+      from intermediari x
+      where x.numero_iscrizione_rui = r.tramite
+        and x.sezione in ('A', 'B', 'E')
+      order by x.inoperativo, x.oss
+      limit 1
+    ) t on true`;
 
 /** KPI + ultimo import. I conteggi rispettano il filtro A/B/E. */
 export async function overview(client, { sezione } = {}) {
@@ -150,44 +230,53 @@ export async function cercaIntermediari(client, {
   const testo = (q || '').trim();
   const params = [sezioni];
   const where = ['i.sezione = any($1::text[])'];
-  let indiceTesto = null;
   const rui = sembraRui(testo);
+  const numero = rui ? null : numeroSenzaSezione(testo);
+  let indiceTesto = null;
+  let indiceContiene = null;
 
-  if (testo) {
-    params.push(rui ? normalizzaRui(testo) : testo);
-    indiceTesto = params.length;
-    if (rui) {
-      where.push(`i.numero_iscrizione_rui = $${indiceTesto}`);
-    } else {
-      where.push(`(
+  if (rui) {
+    // "A49819" e' A000049819: il registro scrive sempre 9 cifre.
+    params.push(normalizzaRui(testo));
+    where.push(`i.numero_iscrizione_rui = $${params.length}`);
+  } else if (numero) {
+    // Solo il numero: lo stesso numero in ogni sezione richiesta.
+    params.push(sezioni.map((s) => s + numero));
+    where.push(`i.numero_iscrizione_rui = any($${params.length}::text[])`);
+  } else if (testo) {
+    params.push(testo, patternContiene(testo));
+    indiceTesto = params.length - 1;
+    indiceContiene = params.length;
+    where.push(`(
         i.numero_iscrizione_rui = upper($${indiceTesto})
-        or i.denominazione ilike '%' || $${indiceTesto} || '%'
+        or i.denominazione ilike any($${indiceContiene}::text[])
         or i.denominazione % $${indiceTesto}
       )`);
-    }
   }
   const whereConteggio = [...where];
   const paramsConteggio = [...params];
-  const perPertinenza = Boolean(indiceTesto && !rui);
+  const perPertinenza = Boolean(indiceTesto);
 
   const cursore = dopoNome != null && dopoNome !== '' && dopoOss != null && dopoOss !== '';
   if (cursore) {
-    params.push(dopoNome, Number(dopoOss));
+    params.push(dopoNome, ossCursore(dopoOss));
     where.push(`(i.denominazione, i.oss) > ($${params.length - 1}, $${params.length}::bigint)`);
   }
 
+  let order = 'i.denominazione, i.oss';
+  if (perPertinenza && !cursore) {
+    params.push(patternIniziaCon(testo));
+    order = `(i.denominazione ilike any($${params.length}::text[])) desc,
+       (i.denominazione ilike any($${indiceContiene}::text[])) desc,
+       similarity(i.denominazione, $${indiceTesto}) desc, i.denominazione, i.oss`;
+  }
   params.push(limit + 1);
-  const order = perPertinenza && !cursore
-    ? `(i.denominazione ilike $${indiceTesto} || '%') desc,
-       (i.denominazione ilike '%' || $${indiceTesto} || '%') desc,
-       similarity(i.denominazione, $${indiceTesto}) desc, i.denominazione, i.oss`
-    : 'i.denominazione, i.oss';
 
   const { rows, totale } = await paginaConTotale({
     sql: `
       select
         i.oss, i.numero_iscrizione_rui, i.sezione, i.denominazione, i.data_iscrizione,
-        i.inoperativo, i.persona_giuridica, i.comune_nascita, i.provincia_nascita
+        ${sqlInoperativo('i')} as inoperativo, i.persona_giuridica, i.comune_nascita, i.provincia_nascita
       from intermediari i
       where ${where.join('\n        and ')}
       order by ${order}
@@ -219,15 +308,15 @@ export async function anagrafica(client, rui, { sezione } = {}) {
   const sezioni = sezioniRichieste(sezione);
   const { rows } = await client.query(
     `
-    select *
+    select *, ${sqlInoperativo('intermediari')} as inoperativo_oggi
     from intermediari
     where numero_iscrizione_rui = $2
       and sezione = any($1::text[])
-    order by inoperativo, oss
+    order by inoperativo_oggi, oss
     `,
     [sezioni, numero],
   );
-  return rows;
+  return rows.map(({ inoperativo_oggi: oggi, ...r }) => ({ ...r, inoperativo: oggi }));
 }
 
 export async function rete(client, rui, { sezione } = {}) {
@@ -237,6 +326,8 @@ export async function rete(client, rui, { sezione } = {}) {
   const soggetti = await anagrafica(db, numero, { sezione });
   if (soggetti.length === 0) manca(numero);
 
+  // livello 'I' = rapporto diretto; 'II' = indiretto, attraverso la societa' di
+  // I livello in "tramite" (rete_collegati, ricostruisci_rete_collegati()).
   const [principali, collaboratori] = await Promise.all([db.query(
     `
     select
@@ -245,9 +336,12 @@ export async function rete(client, rui, { sezione } = {}) {
       r.principale as rui_collegato,
       i.denominazione,
       i.sezione,
-      i.inoperativo
+      i.inoperativo,
+      r.tramite,
+      t.denominazione as tramite_denominazione
     from rete_collegati r
     ${anagLaterale('i', 'r.principale')}
+    ${ANAG_TRAMITE}
     where r.collegato = $2
       and r.sezione_principale = any($1::text[])
     order by i.denominazione, r.principale
@@ -261,9 +355,12 @@ export async function rete(client, rui, { sezione } = {}) {
       r.collegato as rui_collegato,
       i.denominazione,
       i.sezione,
-      i.inoperativo
+      i.inoperativo,
+      r.tramite,
+      t.denominazione as tramite_denominazione
     from rete_collegati r
     ${anagLaterale('i', 'r.collegato')}
+    ${ANAG_TRAMITE}
     where r.principale = $2
       and r.sezione_collegato = any($1::text[])
     order by i.denominazione, r.collegato
@@ -295,6 +392,7 @@ export async function rete(client, rui, { sezione } = {}) {
       a: numero,
       qualifica: r.qualifica,
       livello: r.livello,
+      tramite: r.tramite,
     });
   }
   for (const r of collaboratori.rows) {
@@ -312,9 +410,11 @@ export async function rete(client, rui, { sezione } = {}) {
       a: r.rui_collegato,
       qualifica: r.qualifica,
       livello: r.livello,
+      tramite: r.tramite,
     });
   }
 
+  const diretti = collaboratori.rows.filter((r) => r.livello === 'I').length;
   return {
     soggetto: {
       numero_iscrizione_rui: numero,
@@ -324,11 +424,22 @@ export async function rete(client, rui, { sezione } = {}) {
     },
     principali: principali.rows,
     collaboratori: collaboratori.rows,
+    // collaboratori = diretti (livello I) + indiretti (livello II, con "tramite").
+    conteggi: {
+      principali: principali.rows.length,
+      collaboratori: collaboratori.rows.length,
+      diretti,
+      indiretti: collaboratori.rows.length - diretti,
+    },
     grafo: { nodi: [...nodiMap.values()], archi },
   };
 }
 
-export async function scheda(client, rui, { sezione, geocodifica = true } = {}) {
+/**
+ * Scheda completa. Con { contatti: false } non restituisce i recapiti trovati
+ * fuori dal registro (anche dall'AI, pagati dai clienti): serve all'API /v1.
+ */
+export async function scheda(client, rui, { sezione, geocodifica = true, contatti: conContatti = true } = {}) {
   const numero = normalizzaRui(rui);
   const sezioni = sezioniRichieste(sezione);
   const db = getPool();
@@ -375,15 +486,17 @@ export async function scheda(client, rui, { sezione, geocodifica = true } = {}) 
       `,
       [sezioni, numero],
     ),
-    db.query(
-      `
-      select tipo, valore, etichetta, affidabilita, fonte, fonte_url
-      from contatti
-      where numero_iscrizione_rui = $1
-      order by tipo, valore
-      `,
-      [numero],
-    ),
+    conContatti
+      ? db.query(
+        `
+        select tipo, valore, etichetta, affidabilita, fonte, fonte_url
+        from contatti
+        where numero_iscrizione_rui = $1
+        order by tipo, valore
+        `,
+        [numero],
+      )
+      : Promise.resolve(null),
     rete(db, numero, { sezione }),
     numeriDi(db, numero),
     conEreditati ? mandatiViaPrincipali(db, numero) : Promise.resolve([]),
@@ -406,21 +519,28 @@ export async function scheda(client, rui, { sezione, geocodifica = true } = {}) 
     mandati: mandati.rows,
     mandati_via_principali: mandatiEreditati,
     cariche: cariche.rows,
-    contatti: contatti.rows,
+    ...(contatti ? { contatti: contatti.rows } : {}),
     rete: {
       principali: reteSoggetto.principali,
       collaboratori: reteSoggetto.collaboratori,
+      conteggi: reteSoggetto.conteggi,
       grafo: reteSoggetto.grafo,
     },
   };
 }
 
+/**
+ * Numeri di rete. intermediari = collaboratori unici (diretti + indiretti),
+ * collaborazioni = righe della fonte che li legano al soggetto.
+ */
 export async function numeriDi(client, rui) {
   const n = normalizzaRui(rui);
   const { rows } = await client.query(
     `
     select
       coalesce(n.collaboratori, 0)::bigint as intermediari,
+      coalesce(n.diretti, 0)::bigint as intermediari_diretti,
+      coalesce(n.indiretti, 0)::bigint as intermediari_indiretti,
       coalesce(n.rapporti, 0)::bigint as collaborazioni,
       (select count(*)::bigint from mandati where matricola = $1) as mandati,
       (select count(*)::bigint from sedi where numero_iscrizione_int = $1) as sedi
@@ -458,15 +578,20 @@ function filtroElenco({ q, sezione, dopoOss, limite, esporta }, campi) {
   const sezioni = sezioniRichieste(sezione);
   const params = [sezioni];
   const where = [...campi.base];
-  if (q) {
-    params.push(String(q).trim());
-    where.push(campi.testo(params.length));
+  const testo = String(q ?? '').trim();
+  if (testo) {
+    // Il filtro di testo aggiunge i suoi parametri e restituisce la condizione.
+    const param = (valore) => {
+      params.push(valore);
+      return `$${params.length}`;
+    };
+    where.push(campi.testo(param, testo));
   }
   const whereConteggio = [...where];
   const paramsConteggio = [...params];
   const cursore = dopoOss != null && dopoOss !== '';
   if (cursore) {
-    params.push(Number(dopoOss));
+    params.push(ossCursore(dopoOss));
     where.push(`${campi.oss} > $${params.length}::bigint`);
   }
   const limit = limitePagina(limite, esporta);
@@ -480,13 +605,16 @@ export async function elencoSedi(client, {
   const f = filtroElenco({ q, sezione, dopoOss, limite, esporta }, {
     base: ['i.sezione = any($1::text[])'],
     oss: 's.oss',
-    testo: (n) => `(
-      s.comune_sede ilike '%' || $${n} || '%'
-      or s.indirizzo_sede ilike '%' || $${n} || '%'
-      or i.denominazione ilike '%' || $${n} || '%'
-      or s.numero_iscrizione_int = upper($${n})
-      or s.provincia_sede = upper($${n})
-    )`,
+    testo: (param, t) => {
+      const contiene = param(patternContiene(t));
+      return `(
+      s.comune_sede ilike any(${contiene}::text[])
+      or s.indirizzo_sede ilike any(${contiene}::text[])
+      or i.denominazione ilike any(${contiene}::text[])
+      or s.numero_iscrizione_int = ${param(normalizzaRui(t))}
+      or s.provincia_sede = ${param(t.toUpperCase())}
+    )`;
+    },
   });
   const daJoin = `
     from sedi s
@@ -515,12 +643,15 @@ export async function elencoMandati(client, {
   const f = filtroElenco({ q, sezione, dopoOss, limite, esporta }, {
     base: ['i.sezione = any($1::text[])'],
     oss: 'm.oss',
-    testo: (n) => `(
-      m.ragione_sociale ilike '%' || $${n} || '%'
-      or m.codice_compagnia ilike '%' || $${n} || '%'
-      or i.denominazione ilike '%' || $${n} || '%'
-      or m.matricola = upper($${n})
-    )`,
+    testo: (param, t) => {
+      const contiene = param(patternContiene(t));
+      return `(
+      m.ragione_sociale ilike any(${contiene}::text[])
+      or m.codice_compagnia ilike any(${contiene}::text[])
+      or i.denominazione ilike any(${contiene}::text[])
+      or m.matricola = ${param(normalizzaRui(t))}
+    )`;
+    },
   });
   const daJoin = `
     from mandati m
@@ -547,15 +678,21 @@ export async function elencoCariche(client, {
   q, sezione, dopoOss, limite, esporta = false,
 } = {}) {
   const f = filtroElenco({ q, sezione, dopoOss, limite, esporta }, {
-    base: ['true'],
+    // La sezione filtra le righe, non solo i nomi: resta una carica se la
+    // persona o la societa' sta in una delle sezioni richieste.
+    base: ['(pf.numero_iscrizione_rui is not null or pg.numero_iscrizione_rui is not null)'],
     oss: 'c.oss',
-    testo: (n) => `(
-      pf.denominazione ilike '%' || $${n} || '%'
-      or pg.denominazione ilike '%' || $${n} || '%'
-      or c.qualifica_intermediario ilike '%' || $${n} || '%'
-      or c.numero_iscrizione_rui_pf = upper($${n})
-      or c.numero_iscrizione_rui_pg = upper($${n})
-    )`,
+    testo: (param, t) => {
+      const contiene = param(patternContiene(t));
+      const rui = param(normalizzaRui(t));
+      return `(
+      pf.denominazione ilike any(${contiene}::text[])
+      or pg.denominazione ilike any(${contiene}::text[])
+      or c.qualifica_intermediario ilike any(${contiene}::text[])
+      or c.numero_iscrizione_rui_pf = ${rui}
+      or c.numero_iscrizione_rui_pg = ${rui}
+    )`;
+    },
   });
   const daJoin = `
     from cariche c

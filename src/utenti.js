@@ -57,6 +57,20 @@ export async function elencoUtentiCliente(client) {
   return { utenti: rows };
 }
 
+function emailGiaUsata(email, altro, rui) {
+  if (altro.rui && altro.rui === rui) {
+    return erroreHttp(
+      `${email} ha già un accesso per questa società: per una nuova password usa «Reimposta password».`,
+      409,
+    );
+  }
+  const dove = altro.rui ? ` da ${altro.denominazione || 'un\'altra società'} (${altro.rui})` : '';
+  return erroreHttp(
+    `${email} è già usata${dove}: usa un'altra email oppure elimina prima quell'accesso.`,
+    409,
+  );
+}
+
 export async function creaUtenteCliente(client, { rui, email, nome } = {}) {
   const numero = normalizzaRui(rui);
   if (!numero) throw erroreHttp('indica il RUI della società', 400);
@@ -75,6 +89,19 @@ export async function creaUtenteCliente(client, { rui, email, nome } = {}) {
   if (soggetto.sezione !== 'A' && soggetto.sezione !== 'B') {
     throw erroreHttp('il cliente deve essere una iscrizione A o B', 400);
   }
+
+  // Un'email esistente non si sposta di società né si sovrascrive: prima di creare il cliente,
+  // così un tentativo respinto non riattiva una società disattivata.
+  const esistente = await client.query(
+    `
+    select c.numero_iscrizione_rui as rui, c.denominazione
+    from operatori_cliente o
+    join clienti c on c.id = o.cliente_id
+    where lower(o.email) = $1
+    `,
+    [indirizzo],
+  );
+  if (esistente.rows[0]) throw emailGiaUsata(indirizzo, esistente.rows[0], soggetto.numero_iscrizione_rui);
 
   const cliente = await client.query(
     `
@@ -97,15 +124,15 @@ export async function creaUtenteCliente(client, { rui, email, nome } = {}) {
     `
     insert into operatori_cliente (cliente_id, email, password_hash, nome, attivo)
     values ($1, $2, $3, $4, true)
-    on conflict (email) do update
-      set cliente_id = excluded.cliente_id,
-          password_hash = excluded.password_hash,
-          nome = excluded.nome,
-          attivo = true
+    on conflict (email) do nothing
     returning id, email, nome, attivo
     `,
     [cliente.rows[0].id, indirizzo, hash, etichetta],
   );
+  // Creato da un'altra richiesta nello stesso istante
+  if (operatore.rowCount === 0) {
+    throw emailGiaUsata(indirizzo, { rui: null, denominazione: null }, soggetto.numero_iscrizione_rui);
+  }
 
   return {
     ok: true,
@@ -129,9 +156,9 @@ export async function reimpostaPasswordUtente(client, email) {
   const upd = await client.query(
     `
     update operatori_cliente
-    set password_hash = $2, attivo = true
+    set password_hash = $2
     where lower(email) = $1
-    returning id, email, nome
+    returning id, email, nome, attivo
     `,
     [indirizzo, hash],
   );

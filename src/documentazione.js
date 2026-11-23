@@ -1,5 +1,27 @@
 import { DIMENSIONI, ESEMPI_DOMANDA } from './dimensioni.js';
 
+const PARAMETRI_ELENCO = [
+  { name: 'q', in: 'query', schema: { type: 'string' } },
+  { name: 'sezione', in: 'query', schema: { type: 'string', enum: ['A', 'B', 'E'] } },
+  { name: 'limit', in: 'query', schema: { type: 'integer' } },
+  { name: 'dopo_oss', in: 'query', description: 'cursore della pagina successiva (campo prossimo)', schema: { type: 'string' } },
+  { name: 'formato', in: 'query', description: 'csv per scaricare fino a 5.000 righe', schema: { type: 'string', enum: ['csv'] } },
+];
+
+function elenco(summary) {
+  return {
+    get: {
+      summary,
+      parameters: PARAMETRI_ELENCO,
+      responses: { 200: { description: 'lista paginata (items, prossimo, totale) o CSV' } },
+    },
+  };
+}
+
+/**
+ * baseUrl e' l'origine del sito (https://host). Le API stanno sotto /api: e'
+ * il percorso del proxy di Cloudflare Pages e anche il server locale lo accetta.
+ */
 export function specificaOpenApi(baseUrl) {
   return {
     openapi: '3.0.3',
@@ -9,7 +31,7 @@ export function specificaOpenApi(baseUrl) {
       description:
         'Lettura del Registro Unico Intermediari (sezioni A, B, E) già importato. Nessun aggiornamento da questi endpoint.',
     },
-    servers: [{ url: `${baseUrl}/v1` }],
+    servers: [{ url: `${String(baseUrl).replace(/\/+$/, '')}/api/v1` }],
     security: [{ ApiKey: [] }],
     paths: {
       '/overview': {
@@ -50,8 +72,14 @@ export function specificaOpenApi(baseUrl) {
           responses: { 200: { description: 'principali e collaboratori' } },
         },
       },
+      '/sedi': elenco('Sedi: comune, sigla provincia, indirizzo o RUI'),
+      '/mandati': elenco('Mandati: compagnia, intermediario o RUI'),
+      '/cariche': elenco('Cariche societarie: persona, società, qualifica o RUI'),
       '/dimensioni': {
         get: { summary: 'Caratteristiche interrogabili', responses: { 200: { description: 'catalogo' } } },
+      },
+      '/openapi.json': {
+        get: { summary: 'Questa specifica', responses: { 200: { description: 'OpenAPI 3' } } },
       },
     },
     components: {

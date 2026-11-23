@@ -5,7 +5,7 @@
 // ritorno a capo isolato dentro una ragione sociale.
 
 const DATA_ITALIANA = /^(\d{2})\/(\d{2})\/(\d{4})$/;
-const DATA_ISO = /^(\d{4}-\d{2}-\d{2})(?: \d{2}:\d{2}:\d{2})?$/;
+const DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})(?: \d{2}:\d{2}:\d{2})?$/;
 
 export class ErroreDiFormato extends Error {}
 
@@ -16,19 +16,72 @@ export class ErroreDiFormato extends Error {}
  */
 export function convertiData(valore, dove) {
   const italiana = DATA_ITALIANA.exec(valore);
-  if (italiana) {
-    const [, giorno, mese, anno] = italiana;
-    return `${anno}-${mese}-${giorno}`;
+  const iso = italiana ? null : DATA_ISO.exec(valore);
+  if (!italiana && !iso) {
+    throw new ErroreDiFormato(`data non riconosciuta in ${dove}: ${JSON.stringify(valore)}`);
   }
-  const iso = DATA_ISO.exec(valore);
-  if (iso) return iso[1];
-  throw new ErroreDiFormato(`data non riconosciuta in ${dove}: ${JSON.stringify(valore)}`);
+  const [anno, mese, giorno] = italiana
+    ? [italiana[3], italiana[2], italiana[1]]
+    : [iso[1], iso[2], iso[3]];
+  // 31/02/2020 ha la forma giusta ma non esiste: meglio fermarsi qui che dentro COPY.
+  if (!dataEsiste(Number(anno), Number(mese), Number(giorno))) {
+    throw new ErroreDiFormato(`data inesistente in ${dove}: ${JSON.stringify(valore)}`);
+  }
+  return `${anno}-${mese}-${giorno}`;
+}
+
+/** Calendario gregoriano, come Postgres: niente anno 0 (la fonte ha anche un 30/05/0007, valido). */
+export function dataEsiste(anno, mese, giorno) {
+  if (anno < 1 || mese < 1 || mese > 12 || giorno < 1) return false;
+  const bisestile = (anno % 4 === 0 && anno % 100 !== 0) || anno % 400 === 0;
+  const giorniDelMese = [31, bisestile ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mese - 1];
+  return giorno <= giorniDelMese;
 }
 
 export function convertiBooleano(valore, dove) {
   if (valore === '0') return false;
   if (valore === '1') return true;
   throw new ErroreDiFormato(`booleano non riconosciuto in ${dove}: ${JSON.stringify(valore)}`);
+}
+
+/** Intestazione attesa: i nomi delle colonne in maiuscolo, tranne quelle che la fonte lascia senza nome. */
+export function intestazioneAttesa(spec) {
+  const conNome = spec.colonne.length - (spec.colonneSenzaNome ?? 0);
+  return spec.colonne.slice(0, conNome).map(([nome]) => nome.toUpperCase());
+}
+
+/**
+ * Confronta la prima riga del CSV con le colonne attese: nomi, ordine e numero.
+ * Senza questo controllo una colonna nuova o spostata nella fonte finirebbe
+ * nella colonna sbagliata senza nessun errore (es. incollata all'indirizzo
+ * delle sedi da riunisciCodaIn).
+ */
+export function verificaIntestazione(riga, spec) {
+  const attese = intestazioneAttesa(spec);
+  const trovate = riga
+    .replace(/^\uFEFF/, '')
+    .split(';')
+    .map((c) => c.trim().toUpperCase() || '(senza nome)');
+  if (trovate.length === attese.length && trovate.every((c, i) => c === attese[i])) return;
+
+  const differenze = [];
+  const mancanti = attese.filter((c) => !trovate.includes(c));
+  const nuove = trovate.filter((c) => !attese.includes(c));
+  if (mancanti.length) differenze.push(`mancano ${mancanti.join(', ')}`);
+  if (nuove.length) differenze.push(`colonne nuove ${nuove.join(', ')}`);
+  if (trovate.length !== attese.length) {
+    differenze.push(`${trovate.length} colonne invece di ${attese.length}`);
+  }
+  if (!mancanti.length && !nuove.length) {
+    const spostate = attese
+      .map((c, i) => (trovate[i] === c ? null : `posizione ${i + 1}: ${trovate[i] ?? '(nessuna)'} invece di ${c}`))
+      .filter(Boolean);
+    differenze.push(`ordine diverso (${spostate.join('; ')})`);
+  }
+  throw new ErroreDiFormato(
+    `${spec.file}: l'intestazione non è quella attesa, ${differenze.join('; ')}. ` +
+      "Il formato dell'export IVASS è cambiato: va aggiornato src/tables.js prima di caricare.",
+  );
 }
 
 /**
@@ -44,6 +97,7 @@ export function leggiCsv(contenuto, spec) {
   const righe = testo.split('\n');
   if (righe.at(-1) === '') righe.pop();
   if (righe.length === 0) throw new ErroreDiFormato(`${spec.file} e' vuoto`);
+  verificaIntestazione(righe[0], spec);
 
   const attese = spec.colonne.length;
   const anomalie = [];

@@ -6,8 +6,11 @@
 //   node scripts/import.js --dry-run    scarica e valida, senza toccare il db
 //   node scripts/import.js --zip FILE   usa un archivio gia' scaricato
 //   node scripts/import.js --forza      ricarica anche se l'export e' identico
+//
+// Con RUI_ID_CORSA_FILE (GitHub Actions) scrive li' l'id della riga di
+// import_runs: se il job viene ucciso, il passo finale la chiude come fallita.
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { closePool } from '../src/db.js';
 import { eseguiImport } from '../src/importa.js';
 
@@ -27,6 +30,10 @@ eseguiImport({
   soloValidazione: argomenti.includes('--dry-run'),
   forza: argomenti.includes('--forza'),
   log,
+  alAvvio: (id) => {
+    log(`aggiornamento #${id} avviato`);
+    if (process.env.RUI_ID_CORSA_FILE) writeFileSync(process.env.RUI_ID_CORSA_FILE, String(id));
+  },
   avanzamento: ({ fase, percentuale, messaggio }) => {
     // Il download aggiorna spesso: a terminale basta una riga ogni 10%.
     if (fase === 'download' && percentuale != null && percentuale >= ultimoDownload + 10) {

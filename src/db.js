@@ -8,6 +8,17 @@ const { Pool, types } = pg;
 types.setTypeParser(types.builtins.DATE, (valore) => valore);
 
 let pool;
+let suEdge = false;
+
+/**
+ * Da chiamare all'avvio della Edge Function, prima della prima query:
+ * connessioni inattive chiuse dopo 30 s (il ruolo ruisearch_api ne ha 20 in
+ * tutto, da dividere fra le istanze) e solo DATABASE_URL, senza ripiegare
+ * sull'utente postgres di SUPABASE_DB_URL.
+ */
+export function modalitaEdge() {
+  suEdge = true;
+}
 
 const DB_SCHEMA = /^[a-z_][a-z0-9_]*$/.test(process.env.DB_SCHEMA || '')
   ? process.env.DB_SCHEMA
@@ -44,7 +55,7 @@ o/bKiIz+Fq8=
 export function getPool() {
   if (!pool) {
     pool = new Pool({
-      connectionString: buildConnectionString(),
+      connectionString: buildConnectionString({ edge: suEdge }),
       ssl: { ca: SUPABASE_CA, rejectUnauthorized: true },
       // Il pooler Supabase in session mode ammette 15 connessioni per TUTTO il
       // progetto, condiviso con altre app (dealercrm, etideal): ne teniamo
@@ -53,13 +64,18 @@ export function getPool() {
       // Aprire una connessione verso Supabase costa ~650 ms (TLS + pooler):
       // le teniamo aperte a lungo invece di chiuderle dopo 10 s di inattivita'.
       // 3 minuti: abbastanza per una sessione di lavoro, senza occupare a
-      // lungo posti del pooler condiviso quando nessuno usa l'app.
-      idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_MS || 3 * 60_000),
+      // lungo posti del pooler condiviso quando nessuno usa l'app. Sulla Edge
+      // 30 s: ogni istanza ha il suo pool e i posti del ruolo sono 20.
+      idleTimeoutMillis: Number(process.env.DB_POOL_IDLE_MS || (suEdge ? 30_000 : 3 * 60_000)),
       keepAlive: true,
       // Il pooler e' condiviso con altre app (15 connessioni per tutto il progetto): una query non puo'
       // occuparne una per piu' di 30 s. L'import e la ricostruzione della rete tolgono il limite solo sulla
       // loro connessione (withClientSenzaLimite).
       statement_timeout: Number(process.env.DB_STATEMENT_TIMEOUT_MS || 30_000),
+      // Mentre l'import sostituisce le tabelle (TRUNCATE + COPY, circa mezzo minuto) una lettura
+      // aspetterebbe fino al limite di 30 s tenendo occupata la connessione: dopo 3 s si arrende con
+      // l'errore 55P03, che l'API trasforma in "Registro in aggiornamento, riprova tra un minuto".
+      lock_timeout: Number(process.env.DB_LOCK_TIMEOUT_MS || 3_000),
       idle_in_transaction_session_timeout: 0,
       // Le tabelle vivono nello schema "ruisearch" del progetto Supabase
       // condiviso; pg_trgm sta in "extensions". Il codice usa nomi senza
@@ -137,17 +153,28 @@ export async function withClient(fn) {
   }
 }
 
-/** Come withClient, ma senza limite di tempo sulle query: per l'import del registro e la ricostruzione della rete. */
+/**
+ * Come withClient, ma senza limite di tempo sulle query e senza lock_timeout
+ * (il TRUNCATE dell'import aspetta che finiscano le letture in corso): per
+ * l'import del registro e la ricostruzione della rete.
+ */
 export async function withClientSenzaLimite(fn) {
-  return withClient(async (client) => {
+  const client = await getPool().connect();
+  let rotta;
+  try {
     await client.query('set statement_timeout = 0');
-    try {
-      return await fn(client);
-    } finally {
-      // La connessione torna al pool: di nuovo col limite normale
-      await client.query('reset statement_timeout').catch(() => {});
-    }
-  });
+    await client.query('set lock_timeout = 0');
+    return await fn(client);
+  } finally {
+    // La connessione torna al pool coi limiti normali. Se non risponde piu' la
+    // si scarta, e con lei un eventuale lock rimasto (vedi importa.js).
+    await client
+      .query('reset statement_timeout; reset lock_timeout')
+      .catch((errore) => {
+        rotta = errore;
+      });
+    client.release(rotta);
+  }
 }
 
 /** Esegue fn dentro una transazione, con rollback su errore. */

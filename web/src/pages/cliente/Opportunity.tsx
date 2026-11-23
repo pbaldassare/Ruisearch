@@ -78,10 +78,14 @@ export function OpportunityPage() {
 
   async function cambiaStato(id: number, stato: Voce["stato"]) {
     if (!cliente) return;
+    setErroreAzione(null);
+    setInfoAzione(null);
     setBusy(id);
     try {
       await postJson("/api/cliente/opportunity/stato", { rui: cliente.rui, id, stato });
       setTick((n) => n + 1);
+    } catch (err) {
+      setErroreAzione(err instanceof Error ? err.message : "cambio di stato non riuscito");
     } finally {
       setBusy(null);
     }

@@ -43,6 +43,11 @@ function aggregaConteggi(mappa, limite = 12) {
     .slice(0, limite);
 }
 
+// rete_collegati: livello 'I' = collaboratore diretto, 'II' = indiretto (tramite un collaboratore di I livello).
+function eDiretto(voce) {
+  return voce.livello === 'I';
+}
+
 function mancaCliente(rui) {
   const errore = new Error(`nessun cliente A/B/E con RUI ${rui}`);
   errore.statusCode = 404;
@@ -68,12 +73,15 @@ export async function estrattoCliente(client, rui) {
     if (i.inoperativo) inoperativi += 1;
     else operativi += 1;
   }
+  const diretti = intermediari.filter(eDiretto).length;
   return {
     soggetto: s.soggetto,
     profilo: s.profilo,
     numeri: {
       ...s.numeri,
       rete: intermediari.length,
+      diretti,
+      indiretti: intermediari.length - diretti,
       operativi,
       inoperativi,
       sezione_a: perSezione.A,
@@ -110,7 +118,10 @@ export async function fidelizzazioneCliente(client, rui) {
 
   const principaliPerRui = new Map();
   const conteggioPrincipali = new Map();
+  // Chi sta anche sotto un tuo collaboratore (il "tramite" degli indiretti) non lavora altrove.
+  const inRete = new Set([numero, ...ruis]);
   for (const p of altri) {
+    if (inRete.has(p.rui_principale)) continue;
     if (!principaliPerRui.has(p.rui_mio)) principaliPerRui.set(p.rui_mio, []);
     const lista = principaliPerRui.get(p.rui_mio);
     if (lista.some((x) => x.rui === p.rui_principale)) continue;
@@ -123,7 +134,7 @@ export async function fidelizzazioneCliente(client, rui) {
     conteggioPrincipali.set(etichetta, (conteggioPrincipali.get(etichetta) || 0) + 1);
   }
 
-  const ruiAltri = [...new Set(altri.map((p) => p.rui_principale).filter(Boolean))];
+  const ruiAltri = [...new Set(altri.map((p) => p.rui_principale).filter((x) => x && !inRete.has(x)))];
   const mandatiAltri = await caricaMandatiRete(client, ruiAltri);
   const compagniePerPrincipale = new Map();
   for (const m of mandatiAltri) {
@@ -161,22 +172,29 @@ export async function fidelizzazioneCliente(client, rui) {
     };
   });
 
-  let sorveglianza = { sorvegliati: [], alert: [] };
+  let sorveglianza = { sorvegliati: [], alert: [], non_letti: 0, letti: 0 };
+  let erroreSorveglianza = null;
   try {
     const cliente = await clienteDaRui(client, numero);
     if (cliente) sorveglianza = await sincronizzaSorveglianza(client, cliente);
   } catch (errore) {
+    // Non si finge "nessun broker": la pagina mostra che la sorveglianza non si è potuta leggere.
     console.error('sorveglianza fidelizzazione', errore);
+    erroreSorveglianza = 'Non riesco a leggere i broker sorvegliati e i loro avvisi: riprova tra poco.';
   }
 
+  const diretti = voci.filter(eDiretto).length;
   return {
     sintesi: {
       in_rete: voci.length,
+      diretti,
+      indiretti: voci.length - diretti,
       da_impostare: voci.filter((v) => v.stato_relazione === 'da_impostare').length,
       da_riattivare: voci.filter((v) => v.stato_relazione === 'da_riattivare').length,
       lavorano_altrove: voci.filter((v) => v.altri_principali.length > 0).length,
       compagnie_distinte: conteggioCompagnie.size,
-      alert_non_letti: sorveglianza.alert.filter((a) => !a.letto).length,
+      alert_non_letti: erroreSorveglianza ? null : sorveglianza.non_letti,
+      alert_letti: erroreSorveglianza ? null : sorveglianza.letti,
     },
     grafici: {
       compagnie: aggregaConteggi(conteggioCompagnie),
@@ -185,6 +203,7 @@ export async function fidelizzazioneCliente(client, rui) {
     voci,
     sorvegliati: sorveglianza.sorvegliati,
     alert: sorveglianza.alert,
+    sorveglianza_errore: erroreSorveglianza,
   };
 }
 
@@ -226,40 +245,19 @@ async function caricaAltriPrincipali(client, ruis, ruiCliente) {
   });
 }
 
-async function collaboratoriSottoBroker(client, ruiBroker) {
-  const { rows } = await client.query(
-    `
-    select distinct on (i.numero_iscrizione_rui)
-      i.numero_iscrizione_rui as rui,
-      i.denominazione,
-      i.sezione,
-      i.inoperativo
-    from rete_collegati r
-    join intermediari i on i.numero_iscrizione_rui = r.collegato
-    where r.principale = $1
-      and r.sezione_collegato = any($2::text[])
-    order by i.numero_iscrizione_rui, i.inoperativo, i.oss
-    `,
-    [ruiBroker, SEZIONI_ATTIVE],
-  );
-  return rows;
-}
+// Avvisi solo dei broker ancora sorvegliati: quelli di un broker tolto non contano e non si vedono.
+const ALERT_DI_SORVEGLIATI = `
+  exists (
+    select 1 from cliente_broker_sorvegliati b
+    where b.cliente_id = a.cliente_id and b.rui_broker = a.rui_broker
+  )`;
 
-async function inserisciSnapshot(client, clienteId, ruiBroker, ruis) {
-  for (let i = 0; i < ruis.length; i += CHUNK) {
-    const pezzo = ruis.slice(i, i + CHUNK);
-    await client.query(
-      `
-      insert into cliente_rete_snapshot (cliente_id, rui_broker, rui_sotto)
-      select $1, $2, unnest($3::text[])
-      on conflict do nothing
-      `,
-      [clienteId, ruiBroker, pezzo],
-    );
-  }
-}
-
-async function sincronizzaSorveglianza(client, cliente) {
+/**
+ * Confronta la rete attuale di ogni broker sorvegliato con quella già vista e, in un'unica istruzione
+ * (atomica): crea gli avvisi dei nuovi iscritti e li aggiunge allo snapshot. Due richieste insieme non
+ * raddoppiano niente (vincoli unici + on conflict do nothing).
+ */
+export async function sincronizzaSorveglianza(client, cliente) {
   const sorvegliati = await client.query(
     `
     select id, rui_broker, denominazione, sezione, creato_il
@@ -269,80 +267,91 @@ async function sincronizzaSorveglianza(client, cliente) {
     `,
     [cliente.id],
   );
+  if (sorvegliati.rows.length === 0) return { sorvegliati: [], alert: [], non_letti: 0, letti: 0 };
 
-  const elenco = [];
-  for (const broker of sorvegliati.rows) {
-    try {
-      const attuali = await collaboratoriSottoBroker(client, broker.rui_broker);
-      const snapshot = await client.query(
-        `
-        select rui_sotto
-        from cliente_rete_snapshot
-        where cliente_id = $1 and rui_broker = $2
-        `,
-        [cliente.id, broker.rui_broker],
-      );
-      const noti = new Set(snapshot.rows.map((r) => r.rui_sotto));
-      const nuovi = attuali.filter((p) => !noti.has(p.rui));
-
-      for (const n of nuovi) {
-        await client.query(
-          `
-          insert into cliente_alert (
-            cliente_id, rui_broker, broker_denominazione,
-            rui_nuovo, nuovo_denominazione, sezione
-          )
-          values ($1, $2, $3, $4, $5, $6)
-          on conflict (cliente_id, rui_broker, rui_nuovo) do nothing
-          `,
-          [
-            cliente.id,
-            broker.rui_broker,
-            broker.denominazione,
-            n.rui,
-            n.denominazione,
-            n.sezione,
-          ],
-        );
-      }
-      if (nuovi.length) {
-        await inserisciSnapshot(client, cliente.id, broker.rui_broker, nuovi.map((n) => n.rui));
-      }
-
-      elenco.push({
-        id: broker.id,
-        rui_broker: broker.rui_broker,
-        denominazione: broker.denominazione,
-        sezione: broker.sezione,
-        in_rete: attuali.length,
-        creato_il: broker.creato_il,
-      });
-    } catch (errore) {
-      console.error(`sorveglianza ${broker.rui_broker}`, errore);
-      elenco.push({
-        id: broker.id,
-        rui_broker: broker.rui_broker,
-        denominazione: broker.denominazione,
-        sezione: broker.sezione,
-        in_rete: null,
-        creato_il: broker.creato_il,
-      });
-    }
-  }
-
-  const alert = await client.query(
+  const conteggi = await client.query(
     `
-    select id, rui_broker, broker_denominazione, rui_nuovo, nuovo_denominazione,
-           sezione, letto, creato_il
-    from cliente_alert
-    where cliente_id = $1
-    order by letto, creato_il desc
-    limit 80
+    with attuali as (
+      select b.rui_broker, b.denominazione as broker_denominazione, r.collegato
+      from cliente_broker_sorvegliati b
+      join rete_collegati r
+        on r.principale = b.rui_broker
+       and r.sezione_collegato = any($2::text[])
+      where b.cliente_id = $1
+    ),
+    nuovi as (
+      select a.*
+      from attuali a
+      where not exists (
+        select 1 from cliente_rete_snapshot s
+        where s.cliente_id = $1 and s.rui_broker = a.rui_broker and s.rui_sotto = a.collegato
+      )
+    ),
+    avvisi as (
+      insert into cliente_alert (
+        cliente_id, rui_broker, broker_denominazione, rui_nuovo, nuovo_denominazione, sezione
+      )
+      select $1, n.rui_broker, n.broker_denominazione, n.collegato, i.denominazione, i.sezione
+      from nuovi n
+      left join lateral (
+        select x.denominazione, x.sezione
+        from intermediari x
+        where x.numero_iscrizione_rui = n.collegato
+        order by x.inoperativo, x.oss
+        limit 1
+      ) i on true
+      on conflict (cliente_id, rui_broker, rui_nuovo) do nothing
+    ),
+    visti as (
+      insert into cliente_rete_snapshot (cliente_id, rui_broker, rui_sotto)
+      select $1, rui_broker, collegato from nuovi
+      on conflict do nothing
+    )
+    select rui_broker, count(*)::int as in_rete
+    from attuali
+    group by rui_broker
     `,
-    [cliente.id],
+    [cliente.id, SEZIONI_ATTIVE],
   );
+  const inRete = new Map(conteggi.rows.map((r) => [r.rui_broker, r.in_rete]));
 
-  return { sorvegliati: elenco, alert: alert.rows };
+  const [alert, numeri] = await Promise.all([
+    client.query(
+      `
+      select a.id, a.rui_broker, a.broker_denominazione, a.rui_nuovo, a.nuovo_denominazione,
+             a.sezione, a.letto, a.creato_il
+      from cliente_alert a
+      where a.cliente_id = $1 and ${ALERT_DI_SORVEGLIATI}
+      order by a.letto, a.creato_il desc
+      limit 80
+      `,
+      [cliente.id],
+    ),
+    client.query(
+      `
+      select
+        count(*) filter (where not a.letto)::int as non_letti,
+        count(*) filter (where a.letto)::int as letti
+      from cliente_alert a
+      where a.cliente_id = $1 and ${ALERT_DI_SORVEGLIATI}
+      `,
+      [cliente.id],
+    ),
+  ]);
+
+  return {
+    sorvegliati: sorvegliati.rows.map((b) => ({
+      id: b.id,
+      rui_broker: b.rui_broker,
+      denominazione: b.denominazione,
+      sezione: b.sezione,
+      in_rete: inRete.get(b.rui_broker) ?? 0,
+      creato_il: b.creato_il,
+    })),
+    alert: alert.rows,
+    non_letti: numeri.rows[0]?.non_letti ?? 0,
+    letti: numeri.rows[0]?.letti ?? 0,
+  };
 }
 
 export async function aggiungiBrokerSorvegliato(client, ruiCliente, ruiBroker) {
@@ -359,43 +368,44 @@ export async function aggiungiBrokerSorvegliato(client, ruiCliente, ruiBroker) {
   const broker = soggetti[0];
   if (!broker) throw erroreHttp(`nessun intermediario A/B/E con RUI ${brokerRui}`, 404);
 
-  const inserito = await client.query(
+  // Broker e baseline (chi ha già sotto) nella stessa istruzione: o tutti e due o niente. Una lettura
+  // della pagina nel frattempo non vede un broker senza baseline, che farebbe "nuovi" tutti i suoi iscritti.
+  const { rows } = await client.query(
     `
-    insert into cliente_broker_sorvegliati (cliente_id, rui_broker, denominazione, sezione)
-    values ($1, $2, $3, $4)
-    on conflict (cliente_id, rui_broker) do nothing
-    returning id
+    with nuovo as (
+      insert into cliente_broker_sorvegliati (cliente_id, rui_broker, denominazione, sezione)
+      values ($1, $2, $3, $4)
+      on conflict (cliente_id, rui_broker) do nothing
+      returning rui_broker
+    ),
+    baseline as (
+      insert into cliente_rete_snapshot (cliente_id, rui_broker, rui_sotto)
+      select $1, n.rui_broker, r.collegato
+      from nuovo n
+      join rete_collegati r
+        on r.principale = n.rui_broker
+       and r.sezione_collegato = any($5::text[])
+      on conflict do nothing
+    )
+    select
+      (select count(*) from nuovo)::int as inserito,
+      (select count(*) from rete_collegati
+        where principale = $2 and sezione_collegato = any($5::text[]))::int as in_rete
     `,
-    [cliente.id, brokerRui, broker.denominazione, broker.sezione],
+    [cliente.id, brokerRui, broker.denominazione, broker.sezione, SEZIONI_ATTIVE],
   );
+  const { inserito, in_rete: inReteBroker } = rows[0];
 
-  if (inserito.rowCount > 0) {
-    const sotto = await collaboratoriSottoBroker(client, brokerRui);
-    await inserisciSnapshot(client, cliente.id, brokerRui, sotto.map((s) => s.rui));
-    return {
-      ok: true,
-      gia_presente: false,
-      broker: {
-        rui_broker: brokerRui,
-        denominazione: broker.denominazione,
-        sezione: broker.sezione,
-        in_rete: sotto.length,
-      },
-      baseline: sotto.length,
-    };
-  }
-
-  const sotto = await collaboratoriSottoBroker(client, brokerRui);
   return {
     ok: true,
-    gia_presente: true,
+    gia_presente: inserito === 0,
     broker: {
       rui_broker: brokerRui,
       denominazione: broker.denominazione,
       sezione: broker.sezione,
-      in_rete: sotto.length,
+      in_rete: inReteBroker,
     },
-    baseline: sotto.length,
+    baseline: inReteBroker,
   };
 }
 
@@ -405,15 +415,24 @@ export async function rimuoviBrokerSorvegliato(client, ruiCliente, ruiBroker) {
   const brokerRui = normalizzaRui(ruiBroker);
   if (!brokerRui) throw erroreHttp('indica il RUI del broker da togliere', 400);
 
-  await client.query(
-    `delete from cliente_rete_snapshot where cliente_id = $1 and rui_broker = $2`,
+  // Via broker, snapshot e avvisi insieme: se lo rimetti riparte da una baseline nuova.
+  const { rows } = await client.query(
+    `
+    with avvisi as (
+      delete from cliente_alert where cliente_id = $1 and rui_broker = $2
+    ),
+    visti as (
+      delete from cliente_rete_snapshot where cliente_id = $1 and rui_broker = $2
+    ),
+    tolto as (
+      delete from cliente_broker_sorvegliati where cliente_id = $1 and rui_broker = $2
+      returning 1
+    )
+    select count(*)::int as n from tolto
+    `,
     [cliente.id, brokerRui],
   );
-  const del = await client.query(
-    `delete from cliente_broker_sorvegliati where cliente_id = $1 and rui_broker = $2`,
-    [cliente.id, brokerRui],
-  );
-  return { ok: true, rimosso: del.rowCount > 0 };
+  return { ok: true, rimosso: rows[0].n > 0 };
 }
 
 export async function marcaAlertLetto(client, ruiCliente, { id, tutti } = {}) {
@@ -497,42 +516,4 @@ export async function controlloRuiCliente(client, rui) {
     numeri: { rete: intermediari.length, inoperativi: inoperativi.length },
     segnalazioni,
   };
-}
-
-export async function opportunityCliente(client, rui) {
-  const { scheda: s, rete: r } = await caricaReteCliente(client, rui);
-  const intermediari = r.collaboratori || [];
-  const inoperativi = intermediari.filter((i) => i.inoperativo);
-  const eAttivi = intermediari.filter((i) => i.sezione === 'E' && !i.inoperativo);
-  const idee = [
-    {
-      id: 'mandati',
-      titolo: 'Sviluppo mandati',
-      stato: (s.mandati || []).length ? 'monitorare' : 'aperta',
-      testo: (s.mandati || []).length
-        ? 'Ci sono già mandati in registro. Si potranno incrociare con la rete.'
-        : 'Nessun mandato diretto in RUI: possibile area di sviluppo commerciale.',
-    },
-    {
-      id: 'rete-e',
-      titolo: 'Crescita collaboratori E',
-      stato: 'aperta',
-      testo: `${eAttivi.length} collaboratori E operativi in rete. Base per fidelizzazione e formazione.`,
-    },
-    {
-      id: 'riattivazione',
-      titolo: 'Riattivazione',
-      stato: inoperativi.length ? 'aperta' : 'in_attesa',
-      testo: inoperativi.length
-        ? `${inoperativi.length} nominativi inoperativi da rivalutare.`
-        : 'Nessun inoperativo in rete da riattivare.',
-    },
-    {
-      id: 'altro',
-      titolo: 'Altre opportunity',
-      stato: 'in_attesa',
-      testo: 'Struttura pronta: qui entreranno segnali da CRM, campagne e confronti di mercato.',
-    },
-  ];
-  return { soggetto: s.soggetto, idee };
 }

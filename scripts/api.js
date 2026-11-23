@@ -1,20 +1,25 @@
 #!/usr/bin/env node
-// Server Node delle API, per sviluppo locale e server propri.
-// La logica sta in src/app.js (la stessa della Edge Function di Supabase);
+// Server Node delle API per lo sviluppo locale (online le API sono la Edge
+// Function di Supabase). La logica sta in src/app.js, la stessa della Edge;
 // qui c'e' solo l'adattamento a node:http e l'aggiornamento eseguito in locale.
+//
+// Attenzione: il database e' uno solo, quello di produzione. Tutto quello che
+// si fa da qui (utenti, chiavi API, aggiornamento del registro) vale online.
 
 import http from 'node:http';
 import { Readable } from 'node:stream';
 import { creaApp } from '../src/app.js';
 import { closePool, riscaldaPool, withClient } from '../src/db.js';
-import { eseguiImport } from '../src/importa.js';
+import { chiudiCorseScadute, eseguiImport } from '../src/importa.js';
 
-const HOST = process.env.RUI_API_HOST || '0.0.0.0';
+// Solo questo computer: Vite inoltra /api qui. Online le API non passano da questo server.
+const HOST = process.env.RUI_API_HOST || '127.0.0.1';
 const PORT = Number(process.env.RUI_API_PORT || 8787);
 
 // Aggiornamento del registro: parte solo su richiesta dell'admin, uno alla
 // volta, dentro questo processo. Lo stato vive in memoria.
 const aggiornamento = {
+  id: null,
   in_corso: false,
   fase: null,
   percentuale: null,
@@ -35,6 +40,7 @@ function avviaAggiornamento({ forza = false } = {}) {
     throw errore;
   }
   Object.assign(aggiornamento, {
+    id: null,
     in_corso: true,
     fase: 'download',
     percentuale: 0,
@@ -52,6 +58,9 @@ function avviaAggiornamento({ forza = false } = {}) {
   eseguiImport({
     forza,
     log: annota,
+    alAvvio: (id) => {
+      aggiornamento.id = id;
+    },
     avanzamento: ({ fase, percentuale, messaggio }) => {
       aggiornamento.fase = fase;
       aggiornamento.percentuale = percentuale;
@@ -63,7 +72,8 @@ function avviaAggiornamento({ forza = false } = {}) {
     })
     .catch((errore) => {
       console.error('aggiornamento registro fallito:', errore);
-      aggiornamento.esito = 'fallito';
+      // 'incompleto': il registro e' stato caricato, e' mancata solo la rete o le statistiche.
+      aggiornamento.esito = errore.esito || 'fallito';
       aggiornamento.errore = errore.message || 'errore sconosciuto';
       annota(`errore: ${aggiornamento.errore}`);
     })
@@ -115,18 +125,28 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`Ruisearch API http://${HOST}:${PORT}`);
   riscaldaPool().catch((errore) => console.error('apertura connessioni non riuscita:', errore.message));
-  // Un aggiornamento "in corso" all'avvio e' rimasto orfano di un riavvio.
-  withClient((client) =>
-    client.query(
-      `update import_runs
-       set esito = 'fallito', concluso_il = now(),
-           errore = coalesce(errore, 'interrotto dal riavvio del server')
-       where esito = 'in corso'`,
-    ),
-  ).catch((errore) => console.error('pulizia import_runs non riuscita:', errore.message));
+  // Il database e' quello di produzione: un aggiornamento "in corso" puo' essere
+  // quello di GitHub Actions che sta girando adesso. Si chiudono solo quelli
+  // oltre i 45 minuti, che di sicuro non sono piu' vivi.
+  withClient((client) => chiudiCorseScadute(client, 'interrotto: nessuna notizia da oltre 45 minuti')).catch(
+    (errore) => console.error('pulizia import_runs non riuscita:', errore.message),
+  );
 });
 
-function chiudi() {
+async function chiudi() {
+  // Un aggiornamento avviato da questo processo e non finito: la sua riga si chiude qui.
+  if (aggiornamento.in_corso && aggiornamento.id) {
+    await withClient((client) =>
+      client.query(
+        `update import_runs set esito = 'fallito', concluso_il = now(),
+           errore = coalesce(errore, 'interrotto dalla chiusura del server locale')
+         where id = $1 and esito = 'in corso'`,
+        [aggiornamento.id],
+      ),
+    ).catch((errore) => console.error('chiusura import_runs non riuscita:', errore.message));
+    // closePool aspetterebbe la connessione dell'import ancora aperta.
+    process.exit(0);
+  }
   server.close(() => {
     closePool().finally(() => process.exit(0));
   });

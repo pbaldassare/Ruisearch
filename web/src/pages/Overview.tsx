@@ -16,7 +16,12 @@ const KPI = [
 
 export function OverviewPage() {
   const { data, errore, caricamento } = useApi<Overview>("/api/overview");
-  const ultimo = data?.ultimo_import;
+  const ultimo = data?.ultimo_import ?? null;
+  // I dati che si stanno guardando: l'ultimo caricamento riuscito, non l'ultimo tentativo.
+  // (Senza dati_in_uso, cioe' con un'API meno recente, vale l'ultimo import solo se completato.)
+  const inUso =
+    data?.dati_in_uso !== undefined ? data.dati_in_uso : ultimo?.esito === "completato" ? ultimo : null;
+  const tentativoDopo = ultimo && ultimo.id !== inUso?.id ? ultimo : null;
 
   return (
     <div className="space-y-6">
@@ -52,11 +57,11 @@ export function OverviewPage() {
       ) : (
         <Card>
           <h3 className="mb-2 text-lg font-bold">Dati aggiornati</h3>
-          {ultimo ? (
+          {inUso ? (
             <p className="text-sm text-muted-foreground">
-              {ultimo.esito === "completato" ? "Ultimo aggiornamento" : `Ultimo tentativo (${ultimo.esito})`} il{" "}
-              {formatQuando(ultimo.concluso_il ?? ultimo.iniziato_il)} · {formatNumero(ultimo.righe_totali)} record
-              dall'export IVASS. Qui contano solo agenti (A), broker (B) e collaboratori (E).{" "}
+              Registro aggiornato al {formatQuando(inUso.concluso_il ?? inUso.iniziato_il)} ·{" "}
+              {formatNumero(inUso.righe_totali)} record dall'export IVASS. Qui contano solo agenti (A), broker (B) e
+              collaboratori (E).{" "}
               <Link className="font-semibold text-primary hover:underline" to="/app/aggiornamento">
                 Gestisci aggiornamenti
               </Link>
@@ -70,6 +75,19 @@ export function OverviewPage() {
               .
             </p>
           )}
+          {inUso?.esito === "incompleto" ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Dopo questo caricamento la rete A/B/E non è stata ricostruita: collaborazioni e reti possono essere
+              quelle del caricamento precedente.
+            </p>
+          ) : null}
+          {tentativoDopo && tentativoDopo.esito !== "identico" ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {tentativoDopo.esito === "in corso"
+                ? `Aggiornamento in corso dal ${formatQuando(tentativoDopo.iniziato_il)}.`
+                : `L'ultimo tentativo, il ${formatQuando(tentativoDopo.concluso_il ?? tentativoDopo.iniziato_il)}, non è riuscito${inUso ? ": restano questi dati" : ""}.`}
+            </p>
+          ) : null}
         </Card>
       )}
     </div>

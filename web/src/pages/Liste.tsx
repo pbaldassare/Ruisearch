@@ -34,6 +34,10 @@ function useParametro(nome: string): [string, (v: string) => void] {
   const [valore, setValore] = useState(daUrl);
   const ritardato = useDebounce(valore, 300);
   const ultimoScritto = useRef(daUrl);
+  // setParams cambia a ogni cambio d'indirizzo: tenuto in un ref, cosi' l'effetto che scrive
+  // l'indirizzo scatta solo quando cambia il testo e non annulla un indietro o un link.
+  const impostaParametri = useRef(setParams);
+  impostaParametri.current = setParams;
 
   // Indirizzo cambiato da fuori (es. tasto indietro): aggiorno il campo.
   useEffect(() => {
@@ -46,7 +50,7 @@ function useParametro(nome: string): [string, (v: string) => void] {
   useEffect(() => {
     if (ritardato === ultimoScritto.current) return;
     ultimoScritto.current = ritardato;
-    setParams(
+    impostaParametri.current(
       (prima) => {
         const nuovi = new URLSearchParams(prima);
         if (ritardato) nuovi.set(nome, ritardato);
@@ -55,7 +59,7 @@ function useParametro(nome: string): [string, (v: string) => void] {
       },
       { replace: true },
     );
-  }, [ritardato, nome, setParams]);
+  }, [ritardato, nome]);
 
   const imposta = useCallback((v: string) => setValore(v), []);
   return [valore, imposta];
@@ -168,23 +172,39 @@ function usePaginato<T, C extends Record<string, string>>(base: string, filtri: 
   const [accodati, setAccodati] = useState<T[]>([]);
   const [coda, setCoda] = useState<C | null | undefined>(undefined);
   const [inCarico, setInCarico] = useState(false);
+  const [erroreAltre, setErroreAltre] = useState<string | null>(null);
+  // Il filtro per cui si stanno chiedendo altre righe: se nel frattempo cambia, la risposta si butta.
+  const percorsoAttuale = useRef(percorso);
+  percorsoAttuale.current = percorso;
+  const occupato = useRef(false);
 
   useEffect(() => {
     setAccodati([]);
     setCoda(undefined);
+    setErroreAltre(null);
   }, [percorso]);
 
   const righe = useMemo(() => [...(data?.items ?? []), ...accodati], [data, accodati]);
-  const prossimo = coda === undefined ? data?.prossimo : coda;
+  // Mentre la prima pagina si ricarica il cursore e' quello del filtro di prima: niente "Altri risultati".
+  const prossimo = caricamento ? null : coda === undefined ? data?.prossimo : coda;
 
   async function altre() {
-    if (!prossimo) return;
+    if (!prossimo || occupato.current) return;
+    const richiesto = percorso;
+    occupato.current = true;
     setInCarico(true);
+    setErroreAltre(null);
     try {
       const extra = await getJson<Pagina<T, C>>(`${base}${qs({ ...filtri, ...prossimo })}`);
+      if (percorsoAttuale.current !== richiesto) return;
       setAccodati((prev) => [...prev, ...extra.items]);
       setCoda(extra.prossimo);
+    } catch (err) {
+      if (percorsoAttuale.current === richiesto) {
+        setErroreAltre(err instanceof Error ? err.message : "caricamento non riuscito");
+      }
     } finally {
+      occupato.current = false;
       setInCarico(false);
     }
   }
@@ -195,7 +215,7 @@ function usePaginato<T, C extends Record<string, string>>(base: string, filtri: 
     prossimo,
     altre,
     inCarico,
-    errore,
+    errore: errore ?? erroreAltre,
     caricamento,
     csv: `${base}${qs({ ...filtri, formato: "csv" })}`,
   };
@@ -628,13 +648,29 @@ export function RetePage() {
   const cerca = useDebounce(q.trim());
   const naviga = useNavigate();
   const eRui = /^[ABE][0-9]{5,}$/i.test(cerca);
+  // L'ultimo RUI messo nell'indirizzo da qui: distingue le nostre scritture dal tasto indietro.
+  const ultimoScritto = useRef(ruiScelto);
+  // setParams cambia a ogni cambio d'indirizzo: in un ref, per non far ripartire l'effetto qui sotto.
+  const impostaParametri = useRef(setParams);
+  impostaParametri.current = setParams;
 
-  // Un RUI scritto o incollato apre subito la rete.
+  // Indirizzo cambiato da fuori (indietro, avanti, link): il campo si allinea.
   useEffect(() => {
-    if (eRui && cerca.toUpperCase() !== ruiScelto) {
-      setParams({ rui: cerca.toUpperCase() }, { replace: true });
+    if (ruiScelto !== ultimoScritto.current) {
+      ultimoScritto.current = ruiScelto;
+      setQ(ruiScelto);
     }
-  }, [eRui, cerca, ruiScelto, setParams]);
+  }, [ruiScelto]);
+
+  // Un RUI scritto o incollato apre subito la rete. Scatta solo quando cambia il testo,
+  // non quando cambia l'indirizzo: altrimenti il tasto indietro verrebbe annullato.
+  useEffect(() => {
+    if (!eRui) return;
+    const rui = cerca.toUpperCase();
+    if (rui === ultimoScritto.current) return;
+    ultimoScritto.current = rui;
+    impostaParametri.current({ rui }, { replace: true });
+  }, [eRui, cerca]);
 
   const candidati = useApi<Pagina<IntermediarioLista, unknown>>(
     cerca && !eRui && cerca.length >= 2 ? `/api/intermediari${qs({ q: cerca, limit: 8 })}` : null,
@@ -642,6 +678,7 @@ export function RetePage() {
   const { data, errore, caricamento } = useApi<Rete>(ruiScelto ? `/api/rete/${encodeURIComponent(ruiScelto)}` : null);
 
   function scegli(rui: string) {
+    ultimoScritto.current = rui;
     setQ(rui);
     naviga(`/app/rete?rui=${encodeURIComponent(rui)}`);
   }

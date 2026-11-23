@@ -7,6 +7,7 @@ import { useAuth } from "@/auth/AuthContext";
 import { useApi, useDebounce } from "@/lib/useApi";
 import { formatNumero } from "@/lib/format";
 import { deleteJson, postJson, qs, type IntermediarioLista, type Pagina } from "@/api";
+import { Rapporto } from "./Rapporto";
 
 type Principale = {
   rui: string;
@@ -19,6 +20,9 @@ type Voce = {
   denominazione: string | null;
   sezione: string | null;
   qualifica: string | null;
+  livello: string | null;
+  tramite?: string | null;
+  tramite_denominazione?: string | null;
   inoperativo: boolean | null;
   indice: number;
   stato_relazione: string;
@@ -50,16 +54,21 @@ type AlertRiga = {
 type Payload = {
   sintesi: {
     in_rete: number;
+    diretti: number;
+    indiretti: number;
     da_impostare: number;
     da_riattivare: number;
     lavorano_altrove: number;
     compagnie_distinte: number;
-    alert_non_letti: number;
+    // null quando la sorveglianza non si è potuta leggere
+    alert_non_letti: number | null;
+    alert_letti: number | null;
   };
   grafici: { compagnie: Barra[]; principali: Barra[] };
   voci: Voce[];
   sorvegliati: Sorvegliato[];
   alert: AlertRiga[];
+  sorveglianza_errore: string | null;
 };
 
 function ChipList({ voci, max = 6 }: { voci: string[]; max?: number }) {
@@ -118,6 +127,11 @@ const COLONNE: Colonna<Voce>[] = [
   { id: "rui", etichetta: "RUI", cella: (r) => r.rui_collegato },
   { id: "sez", etichetta: "Sez.", cella: (r) => <BadgeSezione sezione={r.sezione} /> },
   {
+    id: "rap",
+    etichetta: "Rapporto",
+    cella: (r) => <Rapporto livello={r.livello} tramite={r.tramite} tramiteNome={r.tramite_denominazione} />,
+  },
+  {
     id: "comp",
     etichetta: "Compagnie",
     cella: (r) => <ChipList voci={r.compagnie} />,
@@ -175,7 +189,7 @@ export function FidelizzazionePage() {
     (i) => i.numero_iscrizione_rui !== cliente?.rui && !giaSorvegliati.has(i.numero_iscrizione_rui),
   );
   const nonLetti = (data?.alert ?? []).filter((a) => !a.letto);
-  const letti = (data?.alert ?? []).filter((a) => a.letto);
+  const erroreSorveglianza = data?.sorveglianza_errore ?? null;
 
   async function conAzione(fn: () => Promise<void>) {
     setErroreAzione(null);
@@ -227,7 +241,12 @@ export function FidelizzazionePage() {
           <>
             <Card className="p-4 sm:p-6">
               <p className="text-sm text-muted-foreground">Collaboratori diretti</p>
-              <p className="mt-1 font-display text-2xl sm:text-3xl">{data ? formatNumero(data.sintesi.in_rete) : "—"}</p>
+              <p className="mt-1 font-display text-2xl sm:text-3xl">{data ? formatNumero(data.sintesi.diretti) : "—"}</p>
+              {data?.sintesi.indiretti ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  + {formatNumero(data.sintesi.indiretti)} indiretti
+                </p>
+              ) : null}
             </Card>
             <Card className="p-4 sm:p-6">
               <p className="text-sm text-muted-foreground">Lavorano anche altrove</p>
@@ -277,6 +296,12 @@ export function FidelizzazionePage() {
               </li>
             ))}
           </ul>
+          {(data?.sintesi.alert_non_letti ?? 0) > nonLetti.length ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Ne vedi {formatNumero(nonLetti.length)} su {formatNumero(data?.sintesi.alert_non_letti)}: segna come letti
+              questi per vedere gli altri.
+            </p>
+          ) : null}
         </Card>
       ) : null}
 
@@ -341,6 +366,10 @@ export function FidelizzazionePage() {
         <div className="mt-4 space-y-2">
           {caricamento ? (
             <SkeletonRigaLista n={3} />
+          ) : erroreSorveglianza ? (
+            <p className="text-sm text-destructive" role="alert">
+              {erroreSorveglianza}
+            </p>
           ) : (data?.sorvegliati ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">Nessun broker in sorveglianza.</p>
           ) : (
@@ -371,9 +400,9 @@ export function FidelizzazionePage() {
             ))
           )}
         </div>
-        {letti.length > 0 ? (
+        {data?.sintesi.alert_letti ? (
           <p className="mt-4 text-xs text-muted-foreground">
-            {formatNumero(letti.length)} avvisi già letti restano in storico.
+            {formatNumero(data.sintesi.alert_letti)} avvisi già letti restano in storico.
           </p>
         ) : null}
       </Card>

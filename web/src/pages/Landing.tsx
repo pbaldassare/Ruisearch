@@ -13,7 +13,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { qs, type IntermediarioLista, type Overview, type Pagina } from "@/api";
+import { qs, type Overview, type RisultatoPubblico } from "@/api";
 import { useAuth } from "@/auth/AuthContext";
 import { Osso } from "@/components/Skeleton";
 import { Button, Input } from "@/components/ui";
@@ -224,20 +224,25 @@ function Prodotto() {
   );
 }
 
+// La ricerca pubblica (senza login) vuole almeno 3 caratteri.
+const MINIMO_RICERCA = 3;
+
 function CercaLive({ riservata }: { riservata: string }) {
   const [q, setQ] = useState("");
   const cerca = useDebounce(q, 350);
-  const path = cerca.trim().length >= 2 ? `/api/intermediari${qs({ q: cerca, limit: 8 })}` : null;
-  const { data, errore, caricamento } = useApi<Pagina<IntermediarioLista, unknown>>(path);
+  const abbastanza = cerca.trim().length >= MINIMO_RICERCA;
+  const path = abbastanza ? `/api/pubblico/cerca${qs({ q: cerca.trim() })}` : null;
+  const { data, errore, caricamento } = useApi<{ items: RisultatoPubblico[] }>(path);
   const navigate = useNavigate();
-  const { email } = useAuth();
+  const { email, ruolo } = useAuth();
 
   const risultati = data?.items ?? [];
 
   function apriScheda(rui: string) {
-    const destinazione = `/app/intermediari/${rui}`;
-    if (email) navigate(destinazione);
-    else navigate(`/login?next=${encodeURIComponent(destinazione)}`);
+    const scheda = `/intermediari/${encodeURIComponent(rui)}`;
+    if (ruolo === "cliente") navigate(`/cliente${scheda}`);
+    else if (email) navigate(`/app${scheda}`);
+    else navigate(`/login?next=${encodeURIComponent(`/app${scheda}`)}`);
   }
 
   return (
@@ -270,13 +275,16 @@ function CercaLive({ riservata }: { riservata: string }) {
         </ul>
       ) : null}
       {errore ? <p className="mt-4 text-sm text-destructive">{errore}</p> : null}
-      {cerca.trim().length >= 2 && !caricamento ? (
+      {q.trim().length > 0 && q.trim().length < MINIMO_RICERCA ? (
+        <p className="mt-3 text-sm text-muted-foreground">Scrivi almeno {MINIMO_RICERCA} caratteri.</p>
+      ) : null}
+      {abbastanza && !caricamento && !errore ? (
         <ul className="mt-4 divide-y divide-border/70 overflow-hidden rounded-3xl border border-border/70 bg-card">
           {risultati.length === 0 ? (
             <li className="px-5 py-8 text-sm text-muted-foreground">Nessun intermediario A, B o E.</li>
           ) : (
-            risultati.map((r) => (
-              <li key={r.oss}>
+            risultati.map((r, i) => (
+              <li key={`${r.numero_iscrizione_rui}-${i}`}>
                 <button
                   type="button"
                   className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-secondary/70"
@@ -286,7 +294,7 @@ function CercaLive({ riservata }: { riservata: string }) {
                     <span className="font-semibold">{r.denominazione}</span>
                     <span className="mt-0.5 block text-xs text-muted-foreground">
                       {r.numero_iscrizione_rui}
-                      {r.comune_nascita ? ` · ${r.comune_nascita}` : ""}
+                      {r.inoperativo ? " · inoperativo" : ""}
                     </span>
                   </span>
                   <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-bold">{r.sezione}</span>

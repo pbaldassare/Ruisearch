@@ -887,7 +887,7 @@ alter table ruisearch.api_keys
   add column if not exists richieste_finestra integer not null default 0;
 
 -- ===========================================================================
--- ruisearch_09_ricerche_kimi (2026-11-23)
+-- ruisearch_09_ricerche_kimi (2026-11-23), rinominata ricerche_web in ruisearch_12
 -- Ricerche web con Kimi dei clienti ("Cerca recapiti"): una ricerca sullo stesso
 -- intermediario si riusa per 90 giorni (tutti i clienti) e ogni cliente ne fa al
 -- massimo 20 nuove al giorno (src/opportunity.js).
@@ -903,3 +903,465 @@ create index if not exists ricerche_kimi_target_idx on ruisearch.ricerche_kimi (
 create index if not exists ricerche_kimi_cliente_idx on ruisearch.ricerche_kimi (cliente_id, fatta_il desc);
 alter table ruisearch.ricerche_kimi enable row level security;
 grant select, insert, update, delete on ruisearch.ricerche_kimi to service_role, ruisearch_api;
+
+-- ===========================================================================
+-- ruisearch_10_import_fasi (2026-11-23): Import: riga creata all'avvio, fase/messaggio, esiti identico e incompleto
+-- Applicata in prod il 23/11.
+-- ===========================================================================
+-- Import del registro: fase ed esiti nuovi in import_runs.
+--
+-- Da applicare UNA volta in produzione PRIMA di pubblicare il nuovo codice
+-- (push su main, che usa GitHub Actions per l'import, e `npm run deploy:api`):
+-- il nuovo src/importa.js scrive fase/messaggio e gli esiti 'identico' e
+-- 'incompleto', che con il vincolo di prima verrebbero rifiutati.
+-- Idempotente: si puo' rilanciare senza effetti.
+
+begin;
+
+-- Fase raggiunta (download, validazione, caricamento, rete, completato) e
+-- ultimo messaggio di avanzamento: online la pagina Aggiornamento li legge da
+-- qui mentre l'import gira su GitHub Actions. Su una riga chiusa la fase dice
+-- dove si e' fermato un import fallito.
+alter table ruisearch.import_runs add column if not exists fase text;
+alter table ruisearch.import_runs add column if not exists messaggio text;
+
+-- Esiti:
+--   in corso    la riga nasce all'avvio, prima del download
+--   completato  registro sostituito, rete e statistiche ricostruite
+--   identico    export uguale all'ultimo completato: niente caricamento
+--   incompleto  registro sostituito, ma rete o statistiche non ricostruite
+--   fallito     registro non toccato (restano i dati di prima)
+alter table ruisearch.import_runs drop constraint if exists import_runs_esito_check;
+alter table ruisearch.import_runs add constraint import_runs_esito_check
+  check (esito in ('in corso', 'completato', 'identico', 'incompleto', 'fallito'));
+
+comment on column ruisearch.import_runs.fase is
+  'Fase raggiunta: download, validazione, caricamento, rete, completato.';
+comment on column ruisearch.import_runs.messaggio is
+  'Ultimo messaggio di avanzamento (es. MB scaricati), aggiornato al massimo ogni 15 s.';
+
+commit;
+
+
+-- ===========================================================================
+-- ruisearch_11_rete_tramite_geo (2026-11-23): Rete con il collegamento I livello -> II livello (tramite), diretti/indiretti, cache geocoding per RUI + indirizzo
+-- Applicata in prod il 23/11.
+-- ===========================================================================
+-- Da applicare UNA volta su produzione (progetto moyfkdwsghidkcifesrg), PRIMA di
+-- pubblicare il codice che legge rete_collegati.tramite, rete_numeri.diretti/indiretti
+-- e sedi_geo.indirizzo_chiave. Poi lanciare la ricostruzione della rete:
+--   select * from ruisearch.ricostruisci_rete_collegati();
+-- (oppure `npm run rete`). Il prossimo import la rilancia da solo.
+--
+-- Una volta applicato va riportato in db/supabase/ruisearch_schema.sql.
+
+set search_path = ruisearch, extensions;
+
+-- ===========================================================================
+-- 1. Rete: anche il collegamento societa' di I livello → collaboratore di II livello
+-- ===========================================================================
+-- Contratto di rete_collegati:
+--   livello 'I'  = collaboratore DIRETTO del principale (anche una societa' E
+--                  di I livello con i suoi addetti di II livello);
+--   livello 'II' = collaboratore INDIRETTO del principale, attraverso la
+--                  societa' di I livello indicata in "tramite".
+-- Se una persona e' sia diretta sia indiretta sotto lo stesso principale resta
+-- un arco solo, quello diretto.
+
+alter table rete_collegati add column if not exists tramite text;
+
+comment on table rete_collegati is
+  'Archi di rete A/B/E, uno per coppia (principale, collegato). livello I = diretto, II = indiretto tramite la societa di I livello in tramite.';
+comment on column rete_collegati.livello is
+  'I = collaboratore diretto del principale; II = indiretto, attraverso la societa di I livello in tramite.';
+comment on column rete_collegati.tramite is
+  'Solo livello II: RUI della societa di I livello attraverso cui passa il rapporto.';
+
+-- rete_numeri.collaboratori resta il totale dei collegati unici (diretti +
+-- indiretti, la lunghezza della lista "collaboratori" dell'API); diretti e
+-- indiretti lo dividono.
+alter table rete_numeri add column if not exists diretti integer not null default 0;
+alter table rete_numeri add column if not exists indiretti integer not null default 0;
+
+comment on table rete_numeri is
+  'Conteggi per iscrizione: collaboratori unici (diretti + indiretti), principali unici, rapporti grezzi della fonte.';
+comment on column rete_numeri.collaboratori is
+  'Collegati unici sotto il soggetto: diretti + indiretti.';
+comment on column rete_numeri.diretti is
+  'Collegati unici di livello I (rapporto diretto).';
+comment on column rete_numeri.indiretti is
+  'Collegati unici di livello II (attraverso una societa di I livello).';
+comment on column rete_numeri.rapporti is
+  'Righe di ELENCO_COLLABORATORI che legano il soggetto a un suo collaboratore A/B/E (anche come societa di I livello), prima di togliere i doppioni.';
+
+create or replace function ricostruisci_rete_collegati()
+returns table (archi bigint, soggetti bigint)
+language plpgsql
+set search_path = ruisearch, extensions
+as $$
+declare
+  n_archi bigint;
+  n_soggetti bigint;
+begin
+  -- Rapporti grezzi con entrambi gli estremi A/B/E. Una tabella temporanea:
+  -- servono sia agli archi (senza doppioni) sia al conteggio dei rapporti.
+  drop table if exists pg_temp.rete_bruti;
+  create temporary table rete_bruti on commit drop as
+  with anag as (
+    -- Una riga per numero RUI: quattro numeri sono doppi nella fonte.
+    select distinct on (numero_iscrizione_rui)
+      numero_iscrizione_rui, sezione
+    from intermediari
+    where sezione in ('A', 'B', 'E')
+    order by numero_iscrizione_rui, inoperativo, oss
+  ),
+  bruti as (
+    -- I livello: il principale e il suo collaboratore diretto.
+    select
+      c.num_iscr_intermediario as principale,
+      c.num_iscr_collaboratori_i_liv as collegato,
+      'I'::text as livello,
+      null::text as tramite,
+      nullif(trim(c.qualifica_rapporto), '') as qualifica
+    from collaboratori c
+    where c.livello = 'I'
+      and c.num_iscr_collaboratori_i_liv is not null
+    union all
+    -- II livello, rapporto diretto: la societa' di I livello e il suo addetto.
+    select
+      c.num_iscr_collaboratori_i_liv,
+      c.num_iscr_collaboratori_ii_liv,
+      'I',
+      null,
+      nullif(trim(c.qualifica_rapporto), '')
+    from collaboratori c
+    where c.num_iscr_collaboratori_i_liv is not null
+      and c.num_iscr_collaboratori_ii_liv is not null
+    union all
+    -- II livello, rapporto indiretto: il principale e l'addetto, tramite la societa'.
+    select
+      c.num_iscr_intermediario,
+      c.num_iscr_collaboratori_ii_liv,
+      'II',
+      c.num_iscr_collaboratori_i_liv,
+      nullif(trim(c.qualifica_rapporto), '')
+    from collaboratori c
+    where c.num_iscr_collaboratori_ii_liv is not null
+  )
+  select
+    b.principale,
+    b.collegato,
+    b.livello,
+    b.tramite,
+    b.qualifica,
+    p.sezione as sezione_principale,
+    e.sezione as sezione_collegato
+  from bruti b
+  join anag p on p.numero_iscrizione_rui = b.principale
+  join anag e on e.numero_iscrizione_rui = b.collegato
+  where b.principale <> b.collegato;
+
+  delete from rete_collegati;
+  delete from rete_numeri;
+
+  -- Un arco per coppia: vince il rapporto diretto ('I' < 'II').
+  insert into rete_collegati (
+    principale, collegato, livello, qualifica, sezione_principale, sezione_collegato, tramite
+  )
+  select distinct on (principale, collegato)
+    principale, collegato, livello, qualifica, sezione_principale, sezione_collegato, tramite
+  from rete_bruti
+  order by principale, collegato, livello, tramite nulls first, qualifica;
+
+  insert into rete_numeri (rui, collaboratori, diretti, indiretti, principali, rapporti)
+  select
+    x.rui,
+    sum(x.uscita)::integer,
+    sum(x.diretto)::integer,
+    sum(x.indiretto)::integer,
+    sum(x.entrata)::integer,
+    0
+  from (
+    select
+      principale as rui,
+      1 as uscita,
+      (livello = 'I')::integer as diretto,
+      (livello = 'II')::integer as indiretto,
+      0 as entrata
+    from rete_collegati
+    union all
+    select collegato, 0, 0, 0, 1 from rete_collegati
+  ) x
+  group by x.rui;
+
+  -- Rapporti grezzi: ogni riga della fonte una volta sola per soggetto (niente
+  -- piu' doppio conteggio per i RUI duplicati in intermediari).
+  update rete_numeri n
+  set rapporti = r.n
+  from (
+    select principale as rui, count(*)::integer as n
+    from rete_bruti
+    group by 1
+  ) r
+  where n.rui = r.rui;
+
+  select count(*) into n_archi from rete_collegati;
+  select count(*) into n_soggetti from rete_numeri;
+
+  insert into rete_stato (id, ricostruita_il, archi, soggetti)
+  values (1, now(), n_archi, n_soggetti)
+  on conflict (id) do update
+    set ricostruita_il = excluded.ricostruita_il,
+        archi = excluded.archi,
+        soggetti = excluded.soggetti;
+
+  return query select n_archi, n_soggetti;
+end;
+$$;
+
+revoke all on function ricostruisci_rete_collegati() from public;
+grant execute on function ricostruisci_rete_collegati() to service_role;
+
+-- ===========================================================================
+-- 2. Cache geocoding per RUI + indirizzo, non per oss
+-- ===========================================================================
+-- oss e' il numero di riga dell'export IVASS e cambia a ogni import: con la
+-- chiave su oss una mappa poteva mostrare le coordinate di un altro
+-- intermediario. La chiave diventa (RUI, indirizzo normalizzato); oss resta
+-- come informazione. Stessa normalizzazione di chiaveIndirizzo() in src/geo.js.
+
+alter table sedi_geo add column if not exists indirizzo_chiave text;
+
+update sedi_geo
+set indirizzo_chiave = upper(btrim(regexp_replace(indirizzo_usato, '\s+', ' ', 'g')))
+where indirizzo_chiave is null;
+
+-- Doppioni (stesso RUI e stesso indirizzo): resta il piu' recente.
+delete from sedi_geo a
+using sedi_geo b
+where a.numero_iscrizione_rui = b.numero_iscrizione_rui
+  and a.indirizzo_chiave = b.indirizzo_chiave
+  and (coalesce(a.geocodificato_il, '-infinity'), a.oss)
+    < (coalesce(b.geocodificato_il, '-infinity'), b.oss);
+
+alter table sedi_geo alter column indirizzo_chiave set not null;
+
+do $$
+begin
+  -- La chiave primaria passa da (oss) a (numero_iscrizione_rui, indirizzo_chiave).
+  if exists (
+    select 1 from pg_constraint
+    where conrelid = 'ruisearch.sedi_geo'::regclass
+      and conname = 'sedi_geo_pkey'
+      and pg_get_constraintdef(oid) = 'PRIMARY KEY (oss)'
+  ) then
+    alter table sedi_geo drop constraint sedi_geo_pkey;
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'ruisearch.sedi_geo'::regclass
+      and contype = 'p'
+  ) then
+    alter table sedi_geo
+      add constraint sedi_geo_pkey primary key (numero_iscrizione_rui, indirizzo_chiave);
+  end if;
+end $$;
+
+alter table sedi_geo alter column oss drop not null;
+
+comment on table sedi_geo is
+  'Cache geocoding per RUI + indirizzo (indirizzo_chiave). oss e solo informativo: cambia a ogni import.';
+comment on column sedi_geo.indirizzo_chiave is
+  'indirizzo_usato maiuscolo con gli spazi compattati: chiave della cache insieme al RUI.';
+
+
+-- ===========================================================================
+-- ruisearch_12_area_cliente (2026-11-23): ricerche_kimi -> ricerche_web (prenotazione, tipo, costo), provenienza dei recapiti
+-- Applicata in prod il 23/11.
+-- ===========================================================================
+-- ===========================================================================
+-- pending_cliente.sql: area cliente (ricerche web, recapiti, sorveglianza broker)
+-- Da applicare UNA volta in produzione (progetto moyfkdwsghidkcifesrg), tutto il
+-- file in un colpo, PRIMA del deploy della Edge Function con il nuovo codice:
+-- src/opportunity.js scrive su ricerche_web e su contatti.ricerca_id.
+-- Idempotente: rilanciarlo non cambia niente.
+-- ===========================================================================
+
+begin;
+set local search_path = ruisearch, extensions;
+
+-- ---------------------------------------------------------------------------
+-- 1. ricerche_kimi -> ricerche_web: stessi dati, nome indipendente dal fornitore AI.
+--    Una riga per richiesta di "Cerca recapiti": anche le letture dalla cache
+--    (tipo 'cache_*'), che non contano nel tetto giornaliero e non fanno da fonte
+--    per il riuso. RUISearch registra solo il costo reale del fornitore
+--    (costo_eur, lo riempirà il lavoro su Mistral), mai prezzi.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if to_regclass('ruisearch.ricerche_web') is null and to_regclass('ruisearch.ricerche_kimi') is not null then
+    alter table ruisearch.ricerche_kimi rename to ricerche_web;
+  end if;
+  if to_regclass('ruisearch.ricerche_kimi_target_idx') is not null then
+    alter index ruisearch.ricerche_kimi_target_idx rename to ricerche_web_target_idx;
+  end if;
+  -- Il tetto giornaliero ora conta per iniziata_il: indice nuovo più sotto
+  if to_regclass('ruisearch.ricerche_kimi_cliente_idx') is not null then
+    drop index ruisearch.ricerche_kimi_cliente_idx;
+  end if;
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'ricerche_kimi_pkey' and conrelid = 'ruisearch.ricerche_web'::regclass
+  ) then
+    alter table ruisearch.ricerche_web rename constraint ricerche_kimi_pkey to ricerche_web_pkey;
+  end if;
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'ricerche_kimi_cliente_id_fkey' and conrelid = 'ruisearch.ricerche_web'::regclass
+  ) then
+    alter table ruisearch.ricerche_web
+      rename constraint ricerche_kimi_cliente_id_fkey to ricerche_web_cliente_id_fkey;
+  end if;
+end $$;
+
+alter table ricerche_web
+  add column if not exists stato       text not null default 'ok',
+  add column if not exists tipo        text,
+  add column if not exists iniziata_il timestamptz,
+  add column if not exists costo_eur   numeric;
+
+-- Le ricerche già fatte sono partite e finite insieme
+update ricerche_web set iniziata_il = fatta_il where iniziata_il is null;
+
+alter table ricerche_web
+  alter column iniziata_il set default now(),
+  alter column iniziata_il set not null,
+  -- fatta_il = fine della ricerca: vuota finché è 'in_corso'
+  alter column fatta_il drop not null;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'ricerche_web_stato_check' and conrelid = 'ruisearch.ricerche_web'::regclass
+  ) then
+    alter table ruisearch.ricerche_web add constraint ricerche_web_stato_check
+      check (stato in ('in_corso', 'ok', 'errore'));
+  end if;
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'ricerche_web_tipo_check' and conrelid = 'ruisearch.ricerche_web'::regclass
+  ) then
+    alter table ruisearch.ricerche_web add constraint ricerche_web_tipo_check
+      check (tipo is null or tipo in (
+        'nuova_con_risultati', 'nuova_senza_risultati', 'cache_con_risultati', 'cache_senza_risultati'
+      ));
+  end if;
+end $$;
+
+-- Una sola ricerca in corso per RUI, fra tutti i clienti: il secondo clic riceve 409
+create unique index if not exists ricerche_web_in_corso_idx
+  on ricerche_web (rui_target) where stato = 'in_corso';
+create index if not exists ricerche_web_target_idx on ricerche_web (rui_target, fatta_il desc);
+create index if not exists ricerche_web_cliente_idx on ricerche_web (cliente_id, iniziata_il desc);
+
+comment on table ricerche_web is
+  'Richieste "Cerca recapiti" dei clienti, una riga ciascuna (anche le letture dalla cache). '
+  'Riuso 90 giorni solo da righe nuova_*; tetto 20 nuove al giorno per cliente (src/opportunity.js).';
+comment on column ricerche_web.stato is 'in_corso (prenotata prima della chiamata AI) | ok | errore (non vale per il riuso).';
+comment on column ricerche_web.tipo is
+  'Esito: nuova_con_risultati | nuova_senza_risultati | cache_con_risultati | cache_senza_risultati; null se in corso o in errore.';
+comment on column ricerche_web.costo_eur is 'Costo reale del fornitore AI per questa ricerca (null se non noto o letta dalla cache).';
+
+-- ---------------------------------------------------------------------------
+-- 2. contatti: provenienza (quando, da quale ricerca, di chi)
+-- ---------------------------------------------------------------------------
+alter table contatti
+  add column if not exists ricerca_id bigint references ricerche_web (id) on delete set null,
+  add column if not exists riferito_a text;
+
+alter table contatti alter column raccolto_il set default ((now() at time zone 'Europe/Rome')::date);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'contatti_riferito_a_check' and conrelid = 'ruisearch.contatti'::regclass
+  ) then
+    alter table ruisearch.contatti add constraint contatti_riferito_a_check
+      check (riferito_a is null or riferito_a in ('persona', 'societa_collegata'));
+  end if;
+end $$;
+
+create index if not exists contatti_ricerca_idx on contatti (ricerca_id) where ricerca_id is not null;
+
+comment on column contatti.ricerca_id is 'Ricerca web (ricerche_web) che ha trovato il recapito; null per il registro.';
+comment on column contatti.riferito_a is 'Di chi è il recapito: persona | societa_collegata; null = non detto.';
+
+-- 2a. Recapiti che il nuovo validatore scarta (src/opportunity.js validaRecapito, provato sulle 14 righe
+--     di produzione il 23/11): solo questa, una data salvata come recapito.
+--       select id, numero_iscrizione_rui, tipo, valore, etichetta, fonte from contatti where id = 36;
+--       -> 36 | E000768333 | altro | 16/01/2025 | Data iscrizione | kimi_web
+delete from contatti
+where id = 36 and numero_iscrizione_rui = 'E000768333' and tipo = 'altro' and valore = '16/01/2025';
+
+-- 2b. Copie web di un indirizzo del registro (stesso testo a meno di maiuscole e punteggiatura): il nuovo
+--     codice non le crea più. Anteprima eseguita il 23/11, 4 righe: 7 (A000000250), 13 (A000001728),
+--     18 e 22 (A000000617). Si può saltare: senza, restano doppioni nella scheda Opportunity.
+delete from contatti c
+where c.fonte is distinct from 'rui'
+  and c.tipo = 'indirizzo'
+  and exists (
+    select 1 from contatti r
+    where r.numero_iscrizione_rui = c.numero_iscrizione_rui
+      and r.tipo = c.tipo
+      and r.fonte = 'rui'
+      and r.id <> c.id
+      and regexp_replace(lower(r.valore), '[^[:alnum:]@.]', '', 'g')
+        = regexp_replace(lower(c.valore), '[^[:alnum:]@.]', '', 'g')
+  );
+
+-- 2c. Dati del registro: affidabilità 'ufficiale' (come fa ora il codice); e l'etichetta "Sede web"
+--     che la vecchia upsert aveva scritto sopra la sede RUI di A000001728 (in sedi è "Sede operativa").
+update contatti set affidabilita = 'ufficiale' where fonte = 'rui' and affidabilita <> 'ufficiale';
+update contatti set etichetta = 'Sede operativa'
+where id = 10 and numero_iscrizione_rui = 'A000001728' and fonte = 'rui' and etichetta = 'Sede web';
+
+-- ---------------------------------------------------------------------------
+-- 3. Esito delle ricerche già fatte (dopo la pulizia del punto 2): tutte nuove; con risultati solo se
+--    hanno lasciato un recapito web che non è la copia di un dato del registro. Anteprima 23/11:
+--    12 righe, tutte 'nuova_senza_risultati' (gli unici recapiti web erano le copie del punto 2b e la data).
+-- ---------------------------------------------------------------------------
+update ricerche_web w
+set tipo = case
+  when exists (
+    select 1 from contatti c
+    where c.numero_iscrizione_rui = w.rui_target
+      and c.fonte = 'kimi_web'
+      and not exists (
+        select 1 from contatti r
+        where r.numero_iscrizione_rui = c.numero_iscrizione_rui
+          and r.tipo = c.tipo
+          and r.fonte = 'rui'
+          and regexp_replace(lower(r.valore), '[^[:alnum:]@.]', '', 'g')
+            = regexp_replace(lower(c.valore), '[^[:alnum:]@.]', '', 'g')
+      )
+  ) then 'nuova_con_risultati'
+  else 'nuova_senza_risultati'
+end
+where tipo is null and stato = 'ok';
+
+-- ---------------------------------------------------------------------------
+-- 4. Avvisi di broker non più sorvegliati: non si vedono e non si contano più, e bloccavano
+--    (vincolo unico) gli avvisi dopo aver rimesso lo stesso broker. Anteprima 23/11: 0 righe.
+--       select a.* from cliente_alert a where not exists (select 1 from cliente_broker_sorvegliati b
+--         where b.cliente_id = a.cliente_id and b.rui_broker = a.rui_broker);
+-- ---------------------------------------------------------------------------
+delete from cliente_alert a
+where not exists (
+  select 1 from cliente_broker_sorvegliati b
+  where b.cliente_id = a.cliente_id and b.rui_broker = a.rui_broker
+);
+
+commit;
+
