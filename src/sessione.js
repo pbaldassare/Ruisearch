@@ -9,6 +9,8 @@ import { Buffer } from 'node:buffer';
 import './config.js';
 
 const DURATA_ORE = 12;
+// "Ricordami" sul login: il token dura 30 giorni (resta revocabile cambiando la password).
+const DURATA_RICORDAMI_ORE = 30 * 24;
 
 function segreto() {
   const s = (process.env.SESSION_SECRET || '').trim();
@@ -35,13 +37,13 @@ function firma(testo) {
 }
 
 /** Crea il token per un utente appena autenticato. */
-export function creaToken({ email, ruolo, cliente, pv }) {
+export function creaToken({ email, ruolo, cliente, pv }, { ricordami = false } = {}) {
   const payload = {
     email,
     ruolo,
     rui: ruolo === 'cliente' ? cliente?.rui ?? null : null,
     pv,
-    scade: Date.now() + DURATA_ORE * 3600_000,
+    scade: Date.now() + (ricordami ? DURATA_RICORDAMI_ORE : DURATA_ORE) * 3600_000,
   };
   const corpo = b64(JSON.stringify(payload));
   return `${corpo}.${firma(corpo)}`;

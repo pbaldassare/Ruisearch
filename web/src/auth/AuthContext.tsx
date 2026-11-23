@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { CHIAVE_SESSIONE, postJson } from "@/api";
+import { CHIAVE_SESSIONE, cancellaSessione, postJson, sessioneSalvata } from "@/api";
 
 const STORAGE_KEY = CHIAVE_SESSIONE;
 
@@ -21,7 +21,7 @@ type AuthContextValue = {
   email: string | null;
   ruolo: "admin" | "cliente" | null;
   cliente: ClienteSessione | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, ricordami: boolean) => Promise<void>;
   logout: () => void;
 };
 
@@ -29,7 +29,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 function leggiSessione(): Sessione | null {
   try {
-    const grezzo = sessionStorage.getItem(STORAGE_KEY);
+    const grezzo = sessioneSalvata();
     if (!grezzo) return null;
     const parsed = JSON.parse(grezzo) as Sessione;
     if (!parsed?.email || !parsed.token || (parsed.ruolo !== "admin" && parsed.ruolo !== "cliente")) return null;
@@ -47,16 +47,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: sessione?.email ?? null,
       ruolo: sessione?.ruolo ?? null,
       cliente: sessione?.cliente ?? null,
-      async login(indirizzo, password) {
+      async login(indirizzo, password, ricordami) {
         const esito = await postJson<Sessione>("/api/auth/login", {
           email: indirizzo,
           password,
+          ricordami,
         });
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(esito));
+        cancellaSessione();
+        (ricordami ? localStorage : sessionStorage).setItem(STORAGE_KEY, JSON.stringify(esito));
         setSessione(esito);
       },
       logout() {
-        sessionStorage.removeItem(STORAGE_KEY);
+        cancellaSessione();
         setSessione(null);
       },
     }),

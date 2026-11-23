@@ -9,9 +9,27 @@ export class ApiError extends Error {
 /** Dove AuthContext salva la sessione (email, ruolo, token). */
 export const CHIAVE_SESSIONE = "rui_session_v4";
 
+/** La sessione salvata: in sessionStorage (scheda) o, con "Ricordami", in localStorage. */
+export function sessioneSalvata(): string | null {
+  try {
+    return sessionStorage.getItem(CHIAVE_SESSIONE) ?? localStorage.getItem(CHIAVE_SESSIONE);
+  } catch {
+    return null;
+  }
+}
+
+export function cancellaSessione() {
+  try {
+    sessionStorage.removeItem(CHIAVE_SESSIONE);
+    localStorage.removeItem(CHIAVE_SESSIONE);
+  } catch {
+    // niente: senza storage non c'e' sessione da cancellare
+  }
+}
+
 function token(): string | null {
   try {
-    const grezzo = sessionStorage.getItem(CHIAVE_SESSIONE);
+    const grezzo = sessioneSalvata();
     return grezzo ? (JSON.parse(grezzo) as { token?: string }).token ?? null : null;
   } catch {
     return null;
@@ -19,11 +37,7 @@ function token(): string | null {
 }
 
 function sessioneScaduta() {
-  try {
-    sessionStorage.removeItem(CHIAVE_SESSIONE);
-  } catch {
-    // niente: il redirect basta
-  }
+  cancellaSessione();
   if (!window.location.pathname.startsWith("/login")) {
     window.location.assign(`/login?scaduta=1`);
   }

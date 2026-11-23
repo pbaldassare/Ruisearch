@@ -14,6 +14,7 @@ export function LoginPage() {
       : next.startsWith("/app") ? next : "/app";
   const [indirizzo, setIndirizzo] = useState("");
   const [password, setPassword] = useState("");
+  const [ricordami, setRicordami] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
   const [inCorso, setInCorso] = useState(false);
 
@@ -24,7 +25,7 @@ export function LoginPage() {
     setErrore(null);
     setInCorso(true);
     try {
-      await login(indirizzo, password);
+      await login(indirizzo, password, ricordami);
     } catch (err) {
       setErrore(err instanceof Error ? err.message : "Accesso non riuscito.");
     } finally {
@@ -69,6 +70,15 @@ export function LoginPage() {
               placeholder="la tua password"
               required
             />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-primary"
+              checked={ricordami}
+              onChange={(e) => setRicordami(e.target.checked)}
+            />
+            Ricordami su questo dispositivo per 30 giorni
           </label>
           {errore ? (
             <p className="text-sm text-destructive" role="alert">

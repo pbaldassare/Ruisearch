@@ -183,7 +183,7 @@ export function creaApp({ aggiornamento }) {
     if (path === '/auth/login' && metodo === 'POST') {
       const esito = await verificaAccesso(db(), corpo.email, corpo.password);
       const { pv: _pv, ...pubblico } = esito;
-      return risposta(200, { ...pubblico, token: creaToken(esito) });
+      return risposta(200, { ...pubblico, token: creaToken(esito, { ricordami: corpo.ricordami === true }) });
     }
 
     if (p === '/overview') return risposta(200, await overview(db(), { sezione: q.sezione }));

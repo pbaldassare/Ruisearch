@@ -27,6 +27,11 @@ process.env.ADMIN_PASSWORD = 'nuova-password';
 assert.throws(() => leggiToken(tokenAdmin), /sessione scaduta/);
 process.env.ADMIN_PASSWORD = 'vecchia-password';
 
+// "Ricordami": 30 giorni invece di 12 ore
+const durata = (t) => JSON.parse(Buffer.from(t.split('.')[0], 'base64url').toString()).scade - Date.now();
+assert.ok(durata(creaToken(admin)) <= 12 * 3600_000);
+assert.ok(durata(creaToken(admin, { ricordami: true })) > 29 * 24 * 3600_000);
+
 // Token senza impronta (emessi prima di questa versione): non valgono più
 const [corpo] = tokenAdmin.split('.');
 const vecchio = JSON.parse(Buffer.from(corpo, 'base64url').toString());
