@@ -208,6 +208,9 @@ export type StatoAggiornamento = {
 
 export type Collegato = {
   livello: string | null;
+  // Solo livello 'II': la società di I livello attraverso cui passa il rapporto
+  tramite?: string | null;
+  tramite_denominazione?: string | null;
   qualifica: string | null;
   rui_collegato: string;
   denominazione: string | null;

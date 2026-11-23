@@ -51,7 +51,7 @@ export async function revocaChiave(client, { id } = {}) {
 // o una chiave finita in mani sbagliate non possono martellare il database condiviso.
 export const RICHIESTE_MINUTO = 120;
 
-/** true se la chiave esiste e non è revocata (e ne aggiorna l'ultimo uso); 429 oltre il limite al minuto. */
+/** L'id della chiave se esiste e non è revocata (e ne aggiorna l'ultimo uso), altrimenti false; 429 oltre il limite al minuto. */
 export async function chiaveValida(client, offerta) {
   // Le chiavi generate sono lunghe 47 caratteri: niente query per input assurdi.
   if (!offerta || Buffer.byteLength(offerta) > 200) return false;
@@ -62,12 +62,12 @@ export async function chiaveValida(client, offerta) {
        finestra_il = case when finestra_il > now() - interval '1 minute' then finestra_il else now() end,
        richieste_finestra = case when finestra_il > now() - interval '1 minute' then richieste_finestra + 1 else 1 end
      where hash = $1 and revocata_il is null
-     returning richieste_finestra`,
+     returning id, richieste_finestra`,
     [hash(offerta)],
   );
   if (!rows[0]) return false;
   if (rows[0].richieste_finestra > RICHIESTE_MINUTO) {
     throw erroreHttp(`troppe richieste: al massimo ${RICHIESTE_MINUTO} al minuto per chiave, riprova tra poco.`, 429);
   }
-  return true;
+  return Number(rows[0].id);
 }

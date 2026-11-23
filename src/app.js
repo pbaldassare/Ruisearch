@@ -26,11 +26,12 @@ import {
   aggiornaStatoOpportunity,
   arricchisciOpportunity,
   elencoOpportunity,
+  recapitiPerApi,
   salvaOpportunity,
 } from './opportunity.js';
 import { getPool } from './db.js';
 import { interpretaDomanda } from './domanda.js';
-import { approfondisciConKimi, kimiPronta } from './kimi-approfondisci.js';
+import { aiPronta, approfondisci } from './ricerca-web.js';
 import { DIMENSIONI, ESEMPI_DOMANDA } from './dimensioni.js';
 import { documentazionePubblica, specificaOpenApi } from './documentazione.js';
 import { cercaPubblica, overviewPubblica } from './pubblico.js';
@@ -167,12 +168,14 @@ export function creaApp({ aggiornamento }) {
     // --- controllo accessi ------------------------------------------------
     const livello = livelloAccesso(path);
     let sessione = null;
+    let chiaveId = null;
     if (livello === 'chiave') {
       // Chiavi generate dalla pagina Documentazione; RUI_API_KEY resta valida se impostata.
       const offerta = (request.headers.get('x-api-key') || bearer(request)).trim();
       const daEnv = (process.env.RUI_API_KEY || '').trim();
-      const ok = Boolean(offerta) && ((daEnv && offerta === daEnv) || (await chiaveValida(db(), offerta)));
-      if (!ok) throw errore('manca o non è valida X-API-Key', 401);
+      const daEnvOk = Boolean(offerta) && Boolean(daEnv) && offerta === daEnv;
+      chiaveId = !daEnvOk && offerta ? await chiaveValida(db(), offerta) : null;
+      if (!daEnvOk && !chiaveId) throw errore('manca o non è valida X-API-Key', 401);
     } else if (livello !== 'pubblico') {
       sessione = leggiToken(bearer(request));
       if (sessione.ruolo === 'cliente') await verificaSessioneCliente(db(), sessione);
@@ -218,7 +221,7 @@ export function creaApp({ aggiornamento }) {
         // Serve solo alla mappa della scheda nell'area admin: ai clienti non si manda.
         maps_key: sessione?.ruolo === 'admin' ? (process.env.GOOGLE_MAPS_API_KEY || '').trim() : '',
         api_key_richiesta: true,
-        kimi_pronta: kimiPronta(),
+        ai_pronta: aiPronta(),
         mistral_pronta: await mistralPronta(),
       });
     }
@@ -276,8 +279,17 @@ export function creaApp({ aggiornamento }) {
       if (path === '/cliente/mercato/scheda') return risposta(200, await schedaMercato(db(), q.rui));
     }
 
+    // Recapiti via chiave API (es. Assicurapp): ricerca web o cache, con tipo di ricerca e costo reale.
+    const recapiti_ = livello === 'chiave' ? p.match(/^\/recapiti\/([^/]+)$/) : null;
+    if (recapiti_ && metodo === 'POST') {
+      return risposta(
+        200,
+        await recapitiPerApi(db(), decodeURIComponent(recapiti_[1]), { agenzia: corpo.agenzia, chiaveId }),
+      );
+    }
+
     // Query e AI (admin)
-    if (path === '/query/ai' && metodo === 'POST') return risposta(200, await approfondisciConKimi(db(), corpo));
+    if (path === '/query/ai' && metodo === 'POST') return risposta(200, await approfondisci(corpo));
     if (p === '/query') {
       return risposta(200, await interpretaDomanda(db(), q.q || q.testo || corpo.q || corpo.testo || ''));
     }

@@ -65,6 +65,18 @@ export function specificaOpenApi(baseUrl) {
           responses: { 200: { description: 'interpretazione + risultato' } },
         },
       },
+      '/recapiti/{rui}': {
+        post: {
+          summary: 'Recapiti pubblici di un intermediario (ricerca web con Mistral o cache di 90 giorni)',
+          description:
+            'Corpo JSON facoltativo { "agenzia": "codice del chiamante" }. Risponde con tipo ' +
+            '(nuova_con_risultati, nuova_senza_risultati, cache_con_risultati, cache_senza_risultati), ' +
+            'costo_eur reale del fornitore (0 dalla cache) e recapiti con riferito_a (persona o societa_collegata). ' +
+            '409 se la stessa ricerca è già in corso, 502 se la ricerca web non riesce (niente costo).',
+          parameters: [{ name: 'rui', in: 'path', required: true, schema: { type: 'string' } }],
+          responses: { 200: { description: 'recapiti, tipo e costo' }, 409: { description: 'già in corso' } },
+        },
+      },
       '/rete/{rui}': {
         get: {
           summary: 'Rete a un salto',
@@ -105,7 +117,8 @@ export function documentazionePubblica() {
       { metodo: 'GET', path: '/v1/intermediari?q=', uso: 'cerca per nome o RUI' },
       { metodo: 'GET', path: '/v1/intermediari/{rui}', uso: 'scheda + numeri + mappa azienda' },
       { metodo: 'GET', path: '/v1/query?q=', uso: 'domanda in italiano' },
-      { metodo: 'GET', path: '/v1/rete/{rui}', uso: 'grafo 1 salto' },
+      { metodo: 'GET', path: '/v1/rete/{rui}', uso: 'grafo 1 salto (livello I diretto, II tramite una società di I livello)' },
+      { metodo: 'POST', path: '/v1/recapiti/{rui}', uso: 'recapiti dal web (o dalla cache 90 giorni): tipo di ricerca e costo reale' },
       { metodo: 'GET', path: '/v1/sedi?q=', uso: 'sedi' },
       { metodo: 'GET', path: '/v1/mandati?q=', uso: 'mandati' },
       { metodo: 'GET', path: '/v1/cariche?q=', uso: 'cariche' },

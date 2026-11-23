@@ -1,7 +1,7 @@
-// Opportunity di mercato: salva prospect e recapiti trovati sul web (oggi via Kimi).
+// Opportunity di mercato: salva prospect e recapiti trovati sul web (Mistral, src/ricerca-web.js).
 
 import { clienteDaRui } from './cliente.js';
-import { approfondisciConKimi, kimiPronta } from './kimi-approfondisci.js';
+import { aiPronta, cercaRecapiti } from './ricerca-web.js';
 import { anagrafica, normalizzaRui, scheda } from './query.js';
 
 // Una ricerca web per lo stesso intermediario vale GIORNI_RIUSO giorni per tutti i clienti: i recapiti trovati
@@ -93,7 +93,7 @@ export async function elencoOpportunity(client, ruiCliente) {
     `,
     [cliente.id],
   );
-  return { kimi_pronta: kimiPronta(), voci: rows };
+  return { ai_pronta: aiPronta(), voci: rows };
 }
 
 export async function salvaOpportunity(client, {
@@ -187,11 +187,6 @@ const SOCIAL = [
   [/(^|\.)instagram\.com$/, 'altro', 'Instagram'],
   [/(^|\.)(twitter\.com|x\.com)$/, 'altro', 'X'],
 ];
-
-// Etichette dell'anagrafica RUI che l'AI ripete: non sono recapiti.
-const ETICHETTE_REGISTRO = new Set([
-  'denominazione', 'rui', 'sezione', 'iscrizione', 'stato', 'sedi', 'mandati', 'intermediari', 'collaborazioni',
-]);
 
 function etichettaPulita(etichetta) {
   if (typeof etichetta !== 'string') return null;
@@ -315,10 +310,14 @@ function urlFonte(url) {
  * Non sovrascrive etichetta, fonte_url e ricerca di una riga esistente; un dato del registro la promuove
  * a fonte 'rui'. Restituisce { tipo, valore, nuovo } o null se scartato.
  */
-export async function salvaContatto(client, rui, tipo, valore, { etichetta, fonte, url, ricercaId } = {}) {
+export async function salvaContatto(client, rui, tipo, valore, {
+  etichetta, fonte, url, ricercaId, riferitoA = null, societa = null,
+} = {}) {
   const r = validaRecapito(valore, { tipo, etichetta });
   if (!r) return null;
-  const sorgente = fonte || 'kimi_web';
+  const sorgente = fonte || 'web';
+  // Recapito di un'agenzia o societa' per cui lavora il soggetto: si dice di chi e' nell'etichetta
+  const etichettaFinale = riferitoA === 'societa_collegata' && societa ? `${r.etichetta} · ${societa}` : r.etichetta;
 
   const esistenti = await client.query(
     'select valore from contatti where numero_iscrizione_rui = $1 and tipo = $2',
@@ -331,9 +330,9 @@ export async function salvaContatto(client, rui, tipo, valore, { etichetta, font
   const { rows } = await client.query(
     `
     insert into contatti (
-      numero_iscrizione_rui, tipo, valore, etichetta, fonte, fonte_url, affidabilita, raccolto_il, ricerca_id
+      numero_iscrizione_rui, tipo, valore, etichetta, fonte, fonte_url, affidabilita, raccolto_il, ricerca_id, riferito_a
     )
-    values ($1, $2, $3, $4, $5, $6, $7, (now() at time zone 'Europe/Rome')::date, $8)
+    values ($1, $2, $3, $4, $5, $6, $7, (now() at time zone 'Europe/Rome')::date, $8, $9)
     on conflict (numero_iscrizione_rui, tipo, valore) do update
       set etichetta = case
             when excluded.fonte = 'rui' and contatti.fonte is distinct from 'rui'
@@ -344,32 +343,34 @@ export async function salvaContatto(client, rui, tipo, valore, { etichetta, font
           fonte_url = coalesce(contatti.fonte_url, excluded.fonte_url),
           affidabilita = case when excluded.fonte = 'rui' then 'ufficiale' else contatti.affidabilita end,
           raccolto_il = coalesce(contatti.raccolto_il, excluded.raccolto_il),
-          ricerca_id = coalesce(contatti.ricerca_id, excluded.ricerca_id)
+          ricerca_id = coalesce(contatti.ricerca_id, excluded.ricerca_id),
+          riferito_a = case when excluded.fonte = 'rui' then 'persona' else coalesce(contatti.riferito_a, excluded.riferito_a) end
     returning (xmax = 0) as nuovo
     `,
     [
-      rui, r.tipo, v, r.etichetta, sorgente, urlFonte(url),
+      rui, r.tipo, v, etichettaFinale, sorgente, urlFonte(url),
       sorgente === 'rui' ? 'ufficiale' : 'pubblico_recente', ricercaId || null,
+      sorgente === 'rui' ? 'persona' : riferitoA,
     ],
   );
   return { tipo: r.tipo, valore: v, nuovo: rows[0]?.nuovo === true };
 }
 
-function sintesiOpportunity(kimi, s) {
-  const testoKimi = String(kimi?.sintesi || '').trim();
+function sintesiOpportunity(web, s) {
+  const testoWeb = String(web?.sintesi || '').trim();
   const rui = s?.soggetto?.numero_iscrizione_rui || '';
   const nome = s?.soggetto?.denominazione || rui;
-  const eSoloNome = !testoKimi || (testoKimi.includes(rui) && testoKimi.length < 80);
-  if (kimi && !eSoloNome) return testoKimi;
+  const eSoloNome = !testoWeb || (testoWeb.includes(rui) && testoWeb.length < 80);
+  if (web && !eSoloNome) return testoWeb;
   const sede = (s?.sedi || [])[0];
   const pezzi = [
     `${nome}${rui ? ` (${rui})` : ''}`,
     sede
       ? `Sede RUI: ${[sede.indirizzo_sede, sede.comune_sede, sede.provincia_sede].filter(Boolean).join(', ')}`
       : null,
-    kimi
+    web
       ? 'Ricerca web senza recapiti extra pubblici.'
-      : 'Kimi non configurata: salvati solo sede e sito del registro.',
+      : 'Ricerca web non configurata: salvati solo sede e sito del registro.',
   ].filter(Boolean);
   return pezzi.join('. ');
 }
@@ -386,10 +387,10 @@ function giaInCorso() {
  * - altrimenti riga 'in_corso'.
  * Senza cache e con `nuova` false (AI non configurata) non registra niente e restituisce null.
  */
-export async function prenotaRicerca(client, clienteId, target, { nuova = true } = {}) {
+export async function prenotaRicerca(client, clienteId, target, { nuova = true, chiaveId = null, agenzia = null } = {}) {
   try {
     return await inTransazione(client, async (c) => {
-      await c.query('select pg_advisory_xact_lock(hashtext($1), $2::int)', ['ricerche_web', clienteId]);
+      await c.query('select pg_advisory_xact_lock(hashtext($1), $2::int)', ['ricerche_web', clienteId ?? 0]);
       await c.query(
         `update ricerche_web set stato = 'errore', fatta_il = now()
          where rui_target = $1 and stato = 'in_corso'
@@ -400,7 +401,7 @@ export async function prenotaRicerca(client, clienteId, target, { nuova = true }
       const fonte = await c.query(
         `select id, tipo, sintesi, to_char(fatta_il at time zone 'Europe/Rome', 'YYYY-MM-DD') as giorno
          from ricerche_web
-         where rui_target = $1 and stato = 'ok'
+         where rui_target = $1 and stato = 'ok' and fornitore = 'mistral'
            and tipo in ('nuova_con_risultati', 'nuova_senza_risultati')
            and fatta_il > now() - make_interval(days => $2)
          order by fatta_il desc
@@ -410,10 +411,10 @@ export async function prenotaRicerca(client, clienteId, target, { nuova = true }
       if (fonte.rows[0]) {
         const tipo = fonte.rows[0].tipo === 'nuova_con_risultati' ? 'cache_con_risultati' : 'cache_senza_risultati';
         const ins = await c.query(
-          `insert into ricerche_web (cliente_id, rui_target, stato, tipo, iniziata_il, fatta_il)
-           values ($1, $2, 'ok', $3, now(), now())
+          `insert into ricerche_web (cliente_id, rui_target, stato, tipo, iniziata_il, fatta_il, costo_eur, chiave_id, agenzia)
+           values ($1, $2, 'ok', $3, now(), now(), 0, $4, $5)
            returning id, costo_eur`,
-          [clienteId, target, tipo],
+          [clienteId, target, tipo, chiaveId, agenzia],
         );
         return { ...ins.rows[0], tipo, cache: fonte.rows[0] };
       }
@@ -425,7 +426,8 @@ export async function prenotaRicerca(client, clienteId, target, { nuova = true }
       );
       if (inCorso.rows.length) throw giaInCorso();
 
-      const oggi = await c.query(
+      // Il tetto vale per i clienti dell'area riservata; per /v1 il limite lo fa il software chiamante (es. il wallet).
+      const oggi = clienteId == null ? { rows: [{ fatte: 0 }] } : await c.query(
         `select count(*)::int as fatte
          from ricerche_web
          where cliente_id = $1
@@ -438,10 +440,10 @@ export async function prenotaRicerca(client, clienteId, target, { nuova = true }
       }
 
       const ins = await c.query(
-        `insert into ricerche_web (cliente_id, rui_target, stato, iniziata_il, fatta_il)
-         values ($1, $2, 'in_corso', now(), null)
+        `insert into ricerche_web (cliente_id, rui_target, stato, iniziata_il, fatta_il, chiave_id, agenzia)
+         values ($1, $2, 'in_corso', now(), null, $3, $4)
          returning id, costo_eur`,
-        [clienteId, target],
+        [clienteId, target, chiaveId, agenzia],
       );
       return { ...ins.rows[0], tipo: null, cache: null };
     });
@@ -453,26 +455,31 @@ export async function prenotaRicerca(client, clienteId, target, { nuova = true }
 }
 
 /** Chiude una ricerca prenotata: 'ok' con il tipo di esito, oppure 'errore' (non vale per il riuso). */
-export async function chiudiRicerca(client, id, { stato, tipo = null, sintesi = null }) {
+export async function chiudiRicerca(client, id, { stato, tipo = null, sintesi = null, costoEur = null }) {
   const { rows } = await client.query(
     `update ricerche_web
-     set stato = $2, tipo = $3, sintesi = $4, fatta_il = now()
+     set stato = $2, tipo = $3, sintesi = $4, fatta_il = now(), costo_eur = coalesce($5, costo_eur)
      where id = $1
      returning costo_eur`,
-    [id, stato, tipo, sintesi],
+    [id, stato, tipo, sintesi, costoEur],
   );
   return rows[0] || null;
 }
 
-export async function arricchisciOpportunity(client, {
-  rui, rui_target, rui_broker, zona, compagnia,
-} = {}) {
-  const salvata = await salvaOpportunity(client, {
-    rui, rui_target, rui_broker, zona, compagnia,
-  });
-  const clienteId = salvata.voce.cliente_id;
-  const target = salvata.voce.rui_target;
-  const s = await scheda(client, target, { geocodifica: false });
+const RECAPITI_SQL = `
+  select tipo, valore, etichetta, fonte, fonte_url, affidabilita, riferito_a, raccolto_il
+  from contatti
+  where numero_iscrizione_rui = $1
+  order by (riferito_a = 'societa_collegata'), tipo, valore`;
+
+/**
+ * Recapiti di un intermediario: dalla cache se la stessa ricerca e' stata fatta negli ultimi GIORNI_RIUSO giorni,
+ * altrimenti una ricerca web nuova (prenotata prima, chiusa con esito e costo reale). Comune all'area cliente
+ * ("Cerca recapiti") e a /v1/recapiti. Se la ricerca web fallisce la prenotazione va in 'errore' e l'errore risale:
+ * niente riga riusabile, niente costo addebitabile.
+ */
+async function recapitiDi(client, target, { clienteId = null, chiaveId = null, agenzia = null } = {}) {
+  const s = await scheda(client, target, { geocodifica: false, contatti: false });
 
   for (const sede of s.sedi || []) {
     const riga = [sede.indirizzo_sede, sede.cap_sede, sede.comune_sede, sede.provincia_sede]
@@ -487,71 +494,64 @@ export async function arricchisciOpportunity(client, {
     await salvaContatto(client, target, 'sito', url, { etichetta: 'Sito RUI', fonte: 'rui' });
   }
 
-  const ricerca = await prenotaRicerca(client, clienteId, target, { nuova: kimiPronta() });
-  let kimi = null;
+  const ricerca = await prenotaRicerca(client, clienteId, target, { nuova: aiPronta(), chiaveId, agenzia });
+  let web = null;
   let costo = ricerca?.costo_eur ?? null;
   let tipo = ricerca?.tipo ?? null;
   if (ricerca && !ricerca.cache) {
     try {
-      kimi = await approfondisciConKimi(client, {
-        q: [
-          `Trova i recapiti pubblici di ${s.soggetto.denominazione} (RUI ${target}, intermediario assicurativo Italia).`,
-          'Cerca sul web, su LinkedIn e sui social: indirizzo di sede, email, cellulare, LinkedIn, Facebook, Instagram e sito.',
-          'Usa le ricerche web anche per LinkedIn e i canali social, non solo per email e telefono.',
-          'Non inventare. Se un dato non è pubblico, omettilo.',
-        ].join(' '),
-        max_web: 3,
-        solo_web: true,
-        budget_ms: 150_000,
-        risultato: {
-          scelto: {
-            numero_iscrizione_rui: target,
-            denominazione: s.soggetto.denominazione,
-          },
-        },
-      });
-
-      // Conta solo i recapiti che prima non c'erano: rifare la sede del registro non è un risultato.
+      web = await cercaRecapiti(s);
+      // Conta solo i recapiti nuovi del soggetto stesso: la sede del registro rifatta o il centralino
+      // dell'agenzia per cui lavora (societa_collegata) non sono un risultato da far pagare.
       let nuovi = 0;
-      const salva = async (tipoDichiarato, valore, opzioni) => {
-        const out = await salvaContatto(client, target, tipoDichiarato, valore, { ...opzioni, ricercaId: ricerca.id });
-        if (out?.nuovo) nuovi += 1;
-      };
-      const fondi = kimi.fondamentali || {};
-      if (fondi.email?.valore) {
-        await salva('email', fondi.email.valore, { url: fondi.email.url });
+      for (const x of web.recapiti) {
+        const out = await salvaContatto(client, target, x.tipo, x.valore, {
+          url: x.url,
+          ricercaId: ricerca.id,
+          fonte: 'mistral_web',
+          riferitoA: x.riferito_a,
+          societa: x.etichetta,
+        });
+        if (out?.nuovo && x.riferito_a === 'persona') nuovi += 1;
       }
-      if (fondi.cellulare?.valore) {
-        await salva('telefono', fondi.cellulare.valore, { etichetta: 'Cellulare', url: fondi.cellulare.url });
-      }
-      if (fondi.sede?.valore) {
-        await salva('indirizzo', fondi.sede.valore, { etichetta: 'Sede web', url: fondi.sede.url });
-      }
-      const skipCat = new Set(['anagrafica', 'rete']);
-      for (const cat of kimi.categorie || []) {
-        if (skipCat.has(cat.id)) continue;
-        for (const voce of cat.voci || []) {
-          if (ETICHETTE_REGISTRO.has(String(voce.etichetta || '').trim().toLowerCase())) continue;
-          await salva(null, voce.valore, { etichetta: voce.etichetta, url: voce.url });
-        }
-      }
-
       tipo = nuovi > 0 ? 'nuova_con_risultati' : 'nuova_senza_risultati';
       const chiusa = await chiudiRicerca(client, ricerca.id, {
-        stato: 'ok', tipo, sintesi: sintesiOpportunity(kimi, s),
+        stato: 'ok', tipo, sintesi: sintesiOpportunity(web, s), costoEur: web.costo_eur,
       });
-      costo = chiusa?.costo_eur ?? null;
+      costo = chiusa?.costo_eur ?? web.costo_eur;
     } catch (errore) {
       await chiudiRicerca(client, ricerca.id, { stato: 'errore' }).catch(() => {});
       throw errore;
     }
   }
 
-  const sintesi = ricerca?.cache
-    ? (ricerca.cache.sintesi || sintesiOpportunity(null, s))
-    : sintesiOpportunity(kimi, s);
+  const recapiti = await client.query(RECAPITI_SQL, [target]);
+  return {
+    scheda: s,
+    ricerca_id: ricerca?.id ?? null,
+    // 'nuova_con_risultati' | 'nuova_senza_risultati' | 'cache_con_risultati' | 'cache_senza_risultati' | null
+    tipo,
+    // Costo reale del fornitore AI per questa richiesta: 0 se servita dalla cache, null se nessuna ricerca web
+    costo_eur: costo == null ? null : Number(costo),
+    // Giorno (ora italiana, YYYY-MM-DD) della ricerca web riusata, altrimenti null
+    riusata_il: ricerca?.cache?.giorno ?? null,
+    sintesi: ricerca?.cache ? (ricerca.cache.sintesi || sintesiOpportunity(null, s)) : sintesiOpportunity(web, s),
+    recapiti: recapiti.rows,
+    ricerche: web?.ricerche || [],
+  };
+}
 
-  // Lo stato resta quello scelto dal cliente: 'nuova' finché non la sposta lui.
+export async function arricchisciOpportunity(client, {
+  rui, rui_target, rui_broker, zona, compagnia,
+} = {}) {
+  const salvata = await salvaOpportunity(client, {
+    rui, rui_target, rui_broker, zona, compagnia,
+  });
+  const clienteId = salvata.voce.cliente_id;
+  const target = salvata.voce.rui_target;
+  const esito = await recapitiDi(client, target, { clienteId });
+
+  // Lo stato resta quello scelto dal cliente: 'nuova' finche' non la sposta lui.
   const upd = await client.query(
     `
     update cliente_opportunity
@@ -560,32 +560,44 @@ export async function arricchisciOpportunity(client, {
     where cliente_id = $1 and rui_target = $2
     returning *
     `,
-    [clienteId, target, sintesi],
-  );
-
-  const recapiti = await client.query(
-    `
-    select tipo, valore, etichetta, fonte, fonte_url, affidabilita
-    from contatti
-    where numero_iscrizione_rui = $1
-    order by tipo, valore
-    `,
-    [target],
+    [clienteId, target, esito.sintesi],
   );
 
   return {
     ok: true,
-    kimi_usata: Boolean(kimi),
-    ricerca_id: ricerca?.id ?? null,
-    // 'nuova_con_risultati' | 'nuova_senza_risultati' | 'cache_con_risultati' | 'cache_senza_risultati' | null
-    tipo,
-    // Costo reale del fornitore AI (lo registrerà il lavoro su Mistral); null per ora
-    costo_eur: costo == null ? null : Number(costo),
-    // Giorno (ora italiana, YYYY-MM-DD) della ricerca web riusata, altrimenti null
-    riusata_il: ricerca?.cache?.giorno ?? null,
+    ricerca_id: esito.ricerca_id,
+    tipo: esito.tipo,
+    costo_eur: esito.costo_eur,
+    riusata_il: esito.riusata_il,
     voce: upd.rows[0],
-    recapiti: recapiti.rows,
+    recapiti: esito.recapiti,
     sintesi: upd.rows[0].sintesi,
-    passi: kimi?.passi || [],
+    ricerche: esito.ricerche,
+  };
+}
+
+/**
+ * /v1/recapiti/{rui} (chiave API, es. Assicurapp): recapiti di un intermediario A/B/E con il tipo di ricerca
+ * e il costo reale; il prezzo per l'utente finale lo decide il software chiamante.
+ */
+export async function recapitiPerApi(client, rui, { agenzia, chiaveId = null } = {}) {
+  const target = normalizzaRui(rui);
+  if (!target) throw erroreHttp('numero RUI non valido', 400);
+  const soggetto = (await anagrafica(client, target))[0];
+  if (!soggetto) throw erroreHttp(`nessun intermediario A/B/E con RUI ${target}`, 404);
+  const esito = await recapitiDi(client, target, {
+    chiaveId,
+    agenzia: testo(agenzia).slice(0, 100) || null,
+  });
+  return {
+    rui: target,
+    denominazione: soggetto.denominazione,
+    sezione: soggetto.sezione,
+    ricerca_id: esito.ricerca_id,
+    tipo: esito.tipo,
+    costo_eur: esito.costo_eur,
+    riusata_il: esito.riusata_il,
+    sintesi: esito.sintesi,
+    recapiti: esito.recapiti,
   };
 }

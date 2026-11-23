@@ -18,7 +18,7 @@ const finto = {
       if (!r) return { rows: [], rowCount: 0 };
       r.ultimo_uso = new Date();
       r.richieste_finestra = (r.richieste_finestra || 0) + 1; // il finto non azzera il minuto
-      return { rows: [{ richieste_finestra: r.richieste_finestra }], rowCount: 1 };
+      return { rows: [{ id: r.id, richieste_finestra: r.richieste_finestra }], rowCount: 1 };
     }
     if (sql.includes('set revocata_il')) {
       const r = righe.find((x) => x.id === p[0] && !x.revocata_il);
@@ -36,7 +36,7 @@ assert.equal(voce.prefisso, chiave.slice(0, 10));
 assert.notEqual(righe[0].hash, chiave, 'in chiaro non si salva');
 assert.equal((await elencoChiavi(finto)).chiavi[0].hash, undefined);
 
-assert.equal(await chiaveValida(finto, chiave), true);
+assert.ok(await chiaveValida(finto, chiave));
 assert.ok(righe[0].ultimo_uso);
 assert.equal(await chiaveValida(finto, `${chiave}x`), false);
 assert.equal(await chiaveValida(finto, ''), false);
@@ -44,7 +44,7 @@ assert.equal(await chiaveValida(finto, 'x'.repeat(500)), false);
 
 // Limite al minuto: la chiamata numero RICHIESTE_MINUTO + 1 riceve 429
 righe[0].richieste_finestra = RICHIESTE_MINUTO - 1;
-assert.equal(await chiaveValida(finto, chiave), true);
+assert.ok(await chiaveValida(finto, chiave));
 await assert.rejects(chiaveValida(finto, chiave), (e) => e.statusCode === 429);
 
 await revocaChiave(finto, { id: voce.id });

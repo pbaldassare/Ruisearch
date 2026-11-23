@@ -283,7 +283,7 @@ function Risultato({ domanda }: { domanda: RispostaDomanda }) {
  * nuova (key): una risposta AI ancora in volo non finisce sotto un altro risultato.
  */
 function ApprofondimentoAi({ risultato }: { risultato: RispostaDomanda }) {
-  const { data: cfg } = useApi<{ kimi_pronta?: boolean }>("/api/config");
+  const { data: cfg } = useApi<{ ai_pronta?: boolean }>("/api/config");
   const [inCorso, setInCorso] = useState(false);
   const [ai, setAi] = useState<RispostaAi | null>(null);
   const [errore, setErrore] = useState<string | null>(null);
@@ -325,7 +325,7 @@ function ApprofondimentoAi({ risultato }: { risultato: RispostaDomanda }) {
           {inCorso ? "Approfondisco…" : "Approfondisci"}
         </Button>
       </div>
-      {cfg && cfg.kimi_pronta === false ? (
+      {cfg && cfg.ai_pronta === false ? (
         <p className="mt-3 text-sm text-muted-foreground">
           L&apos;approfondimento non è disponibile in questo momento.
         </p>

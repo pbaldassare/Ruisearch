@@ -30,7 +30,7 @@ type Voce = {
   recapiti: Recapito[];
 };
 
-type Payload = { kimi_pronta: boolean; voci: Voce[] };
+type Payload = { ai_pronta: boolean; voci: Voce[] };
 
 const STATI: Array<Voce["stato"]> = ["nuova", "in_lavorazione", "contattata", "scartata"];
 const ETICHETTA: Record<Voce["stato"], string> = {
@@ -96,7 +96,7 @@ export function OpportunityPage() {
       <MessaggioStato errore={errore} />
       <p className="text-sm text-muted-foreground">
         Qui trovi i nominativi su cui hai premuto «Cerca recapiti», salvati per riprenderli quando vuoi.
-        {data && !data.kimi_pronta
+        {data && !data.ai_pronta
           ? " La ricerca automatica dei recapiti non è attiva: per ora salviamo sede e sito presenti nel registro."
           : " L'AI cerca i recapiti sul web, su LinkedIn e sui social."}
       </p>

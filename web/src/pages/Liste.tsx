@@ -598,6 +598,7 @@ function ElencoCollegati({ titolo, voci, vuoto }: { titolo: string; voci: Colleg
                 <span className="text-muted-foreground">
                   {" "}
                   · {p.rui_collegato} · {p.qualifica || "rapporto"}
+                  {p.livello === "II" ? ` · indiretto tramite ${p.tramite_denominazione || p.tramite || "una società di I livello"}` : ""}
                 </span>
                 {p.inoperativo ? <span className="ml-1 text-xs font-semibold text-destructive">inoperativo</span> : null}
               </li>
