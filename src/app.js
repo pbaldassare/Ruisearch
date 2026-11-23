@@ -133,6 +133,20 @@ async function corpoJson(request) {
   }
 }
 
+// Chiave Mistral presente e accettata da Mistral: verificata al massimo ogni 10 minuti per istanza.
+let mistralVerifica = { ok: false, il: 0 };
+async function mistralPronta() {
+  const chiave = (process.env.MISTRAL_API_KEY || '').trim();
+  if (!chiave) return false;
+  if (Date.now() - mistralVerifica.il < 600_000) return mistralVerifica.ok;
+  const r = await fetch('https://api.mistral.ai/v1/models', {
+    headers: { authorization: `Bearer ${chiave}` },
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => null);
+  mistralVerifica = { ok: Boolean(r?.ok), il: Date.now() };
+  return mistralVerifica.ok;
+}
+
 /**
  * @param {object} opzioni
  * @param {{ stato: () => Promise<object>, avvia: (o: {forza: boolean}) => Promise<object> }} opzioni.aggiornamento
@@ -201,6 +215,7 @@ export function creaApp({ aggiornamento }) {
         maps_key: (process.env.GOOGLE_MAPS_API_KEY || '').trim(),
         api_key_richiesta: true,
         kimi_pronta: kimiPronta(),
+        mistral_pronta: await mistralPronta(),
       });
     }
 
