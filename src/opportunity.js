@@ -585,18 +585,57 @@ export async function recapitiPerApi(client, rui, { agenzia, chiaveId = null } =
   if (!target) throw erroreHttp('numero RUI non valido', 400);
   const soggetto = (await anagrafica(client, target))[0];
   if (!soggetto) throw erroreHttp(`nessun intermediario A/B/E con RUI ${target}`, 404);
-  const esito = await recapitiDi(client, target, {
-    chiaveId,
-    agenzia: testo(agenzia).slice(0, 100) || null,
-  });
+  const codiceAgenzia = testo(agenzia).slice(0, 100) || null;
+  const base = { rui: target, denominazione: soggetto.denominazione, sezione: soggetto.sezione };
+
+  // La stessa agenzia (stessa chiave) che richiede lo stesso RUI entro GIORNI_RIUSO giorni non ripaga:
+  // tipo 'gia_richiesta', costo 0, recapiti di oggi e data della prima richiesta pagata.
+  if (codiceAgenzia) {
+    const prima = await client.query(
+      `select to_char(min(fatta_il) at time zone 'Europe/Rome', 'YYYY-MM-DD') as giorno
+       from ricerche_web
+       where rui_target = $1 and agenzia = $2 and chiave_id is not distinct from $3
+         and stato = 'ok' and tipo <> 'gia_richiesta'
+         and fatta_il > now() - make_interval(days => $4)`,
+      [target, codiceAgenzia, chiaveId, GIORNI_RIUSO],
+    );
+    if (prima.rows[0]?.giorno) {
+      const ins = await client.query(
+        `insert into ricerche_web (cliente_id, rui_target, stato, tipo, iniziata_il, fatta_il, costo_eur, chiave_id, agenzia)
+         values (null, $1, 'ok', 'gia_richiesta', now(), now(), 0, $2, $3)
+         returning id`,
+        [target, chiaveId, codiceAgenzia],
+      );
+      const [recapiti, ultima] = await Promise.all([
+        client.query(RECAPITI_SQL, [target]),
+        client.query(
+          `select sintesi from ricerche_web
+           where rui_target = $1 and sintesi is not null and fornitore = 'mistral'
+           order by fatta_il desc limit 1`,
+          [target],
+        ),
+      ]);
+      return {
+        ...base,
+        ricerca_id: Number(ins.rows[0].id),
+        tipo: 'gia_richiesta',
+        costo_eur: 0,
+        riusata_il: null,
+        gia_richiesta_il: prima.rows[0].giorno,
+        sintesi: ultima.rows[0]?.sintesi ?? null,
+        recapiti: recapiti.rows,
+      };
+    }
+  }
+
+  const esito = await recapitiDi(client, target, { chiaveId, agenzia: codiceAgenzia });
   return {
-    rui: target,
-    denominazione: soggetto.denominazione,
-    sezione: soggetto.sezione,
+    ...base,
     ricerca_id: esito.ricerca_id,
     tipo: esito.tipo,
     costo_eur: esito.costo_eur,
     riusata_il: esito.riusata_il,
+    gia_richiesta_il: null,
     sintesi: esito.sintesi,
     recapiti: esito.recapiti,
   };

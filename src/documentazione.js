@@ -70,7 +70,8 @@ export function specificaOpenApi(baseUrl) {
           summary: 'Recapiti pubblici di un intermediario (ricerca web con Mistral o cache di 90 giorni)',
           description:
             'Corpo JSON facoltativo { "agenzia": "codice del chiamante" }. Risponde con tipo ' +
-            '(nuova_con_risultati, nuova_senza_risultati, cache_con_risultati, cache_senza_risultati), ' +
+            '(nuova_con_risultati, nuova_senza_risultati, cache_con_risultati, cache_senza_risultati, ' +
+            'gia_richiesta = stessa agenzia e stesso RUI entro 90 giorni, con gia_richiesta_il), ' +
             'costo_eur reale del fornitore (0 dalla cache) e recapiti con riferito_a (persona o societa_collegata). ' +
             '409 se la stessa ricerca è già in corso, 502 se la ricerca web non riesce (niente costo).',
           parameters: [{ name: 'rui', in: 'path', required: true, schema: { type: 'string' } }],
