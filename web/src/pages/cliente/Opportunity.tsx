@@ -67,7 +67,7 @@ export function OpportunityPage() {
         zona: v.zona,
         compagnia: v.compagnia,
       });
-      if (out.riusata_il) setInfoAzione(`${v.denominazione || v.rui_target}: recapiti già cercati sul web il ${formatData(out.riusata_il)}: la stessa ricerca si rifà dopo 90 giorni.`);
+      if (out.riusata_il) setInfoAzione(`${v.denominazione || v.rui_target}: recapiti già cercati sul web il ${formatData(out.riusata_il)}: la stessa ricerca si rifà dopo 180 giorni.`);
       setTick((n) => n + 1);
     } catch (err) {
       setErroreAzione(err instanceof Error ? err.message : "arricchimento non riuscito");

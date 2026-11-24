@@ -66,7 +66,7 @@ export function ReteMercatoPage() {
       );
       setOkAzione(
         `Salvato in Opportunity: ${out.sintesi || ruiTarget}. Recapiti: ${out.recapiti?.length ?? 0}.` +
-          (out.riusata_il ? ` Recapiti già cercati sul web il ${formatData(out.riusata_il)}: la stessa ricerca si rifà dopo 90 giorni.` : ""),
+          (out.riusata_il ? ` Recapiti già cercati sul web il ${formatData(out.riusata_il)}: la stessa ricerca si rifà dopo 180 giorni.` : ""),
       );
     } catch (err) {
       setErroreAzione(err instanceof Error ? err.message : "arricchimento non riuscito");

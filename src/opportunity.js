@@ -8,7 +8,7 @@ import { anagrafica, normalizzaRui, scheda } from './query.js';
 // restano in `contatti`, ogni richiesta in `ricerche_web` (anche quelle servite dalla cache, con tipo 'cache_*').
 // Ogni cliente avvia al massimo TETTO_GIORNO ricerche nuove al giorno (ora italiana); le letture dalla cache
 // non contano.
-const GIORNI_RIUSO = 90;
+const GIORNI_RIUSO = 180;
 export const TETTO_GIORNO = 20;
 // Una ricerca 'in_corso' più vecchia di così è morta (funzione interrotta): non blocca più quel RUI.
 const MINUTI_IN_CORSO = 5;
