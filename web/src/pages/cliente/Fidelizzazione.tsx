@@ -253,6 +253,7 @@ export function FidelizzazionePage() {
               <p className="mt-1 font-display text-2xl sm:text-3xl">
                 {data ? formatNumero(data.sintesi?.lavorano_altrove) : "—"}
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">escluse le società del gruppo (cariche in comune)</p>
             </Card>
             <Card className="p-4 sm:p-6">
               <p className="text-sm text-muted-foreground">Compagnie distinte</p>

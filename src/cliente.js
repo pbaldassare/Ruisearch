@@ -223,8 +223,29 @@ async function caricaMandatiRete(client, ruis) {
   });
 }
 
+/**
+ * Societa' del gruppo del cliente: intermediari con almeno una persona che ha una carica sia li' sia nel cliente.
+ * ponytail: regola approssimata (cariche in comune); un amministratore condiviso con un vero concorrente lo esclude.
+ */
+async function societaDelGruppo(client, ruiCliente) {
+  const { rows } = await client.query(
+    `
+    select distinct c2.numero_iscrizione_rui_pg as rui
+    from cariche c1
+    join cariche c2 on c2.numero_iscrizione_rui_pf = c1.numero_iscrizione_rui_pf
+    where c1.numero_iscrizione_rui_pg = $1
+      and c1.numero_iscrizione_rui_pf is not null
+      and c2.numero_iscrizione_rui_pg <> $1
+    `,
+    [ruiCliente],
+  );
+  return rows.map((r) => r.rui);
+}
+
 async function caricaAltriPrincipali(client, ruis, ruiCliente) {
   if (ruis.length === 0) return [];
+  // "Lavora anche altrove" non vale per le societa' del gruppo del cliente
+  const gruppo = await societaDelGruppo(client, ruiCliente);
   return aPezzi(ruis, async (pezzo) => {
     const { rows } = await client.query(
       `
@@ -238,8 +259,9 @@ async function caricaAltriPrincipali(client, ruis, ruiCliente) {
       where r.collegato = any($1::text[])
         and r.principale <> $2
         and r.sezione_principale = any($3::text[])
+        and r.principale <> all($4::text[])
       `,
-      [pezzo, ruiCliente, SEZIONI_ATTIVE],
+      [pezzo, ruiCliente, SEZIONI_ATTIVE, gruppo],
     );
     return rows;
   });
