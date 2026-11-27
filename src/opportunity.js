@@ -387,7 +387,9 @@ function giaInCorso() {
  * - altrimenti riga 'in_corso'.
  * Senza cache e con `nuova` false (AI non configurata) non registra niente e restituisce null.
  */
-export async function prenotaRicerca(client, clienteId, target, { nuova = true, chiaveId = null, agenzia = null } = {}) {
+export async function prenotaRicerca(client, clienteId, target, {
+  nuova = true, chiaveId = null, agenzia = null, forza = false,
+} = {}) {
   try {
     return await inTransazione(client, async (c) => {
       await c.query('select pg_advisory_xact_lock(hashtext($1), $2::int)', ['ricerche_web', clienteId ?? 0]);
@@ -398,7 +400,8 @@ export async function prenotaRicerca(client, clienteId, target, { nuova = true, 
         [target, MINUTI_IN_CORSO],
       );
 
-      const fonte = await c.query(
+      // forza: il chiamante vuole una ricerca nuova anche se ce n'e' una riusabile
+      const fonte = forza ? { rows: [] } : await c.query(
         `select id, tipo, sintesi, to_char(fatta_il at time zone 'Europe/Rome', 'YYYY-MM-DD') as giorno
          from ricerche_web
          where rui_target = $1 and stato = 'ok' and fornitore = 'mistral'
@@ -478,7 +481,7 @@ const RECAPITI_SQL = `
  * ("Cerca recapiti") e a /v1/recapiti. Se la ricerca web fallisce la prenotazione va in 'errore' e l'errore risale:
  * niente riga riusabile, niente costo addebitabile.
  */
-async function recapitiDi(client, target, { clienteId = null, chiaveId = null, agenzia = null } = {}) {
+async function recapitiDi(client, target, { clienteId = null, chiaveId = null, agenzia = null, forza = false } = {}) {
   const s = await scheda(client, target, { geocodifica: false, contatti: false });
 
   for (const sede of s.sedi || []) {
@@ -494,7 +497,7 @@ async function recapitiDi(client, target, { clienteId = null, chiaveId = null, a
     await salvaContatto(client, target, 'sito', url, { etichetta: 'Sito RUI', fonte: 'rui' });
   }
 
-  const ricerca = await prenotaRicerca(client, clienteId, target, { nuova: aiPronta(), chiaveId, agenzia });
+  const ricerca = await prenotaRicerca(client, clienteId, target, { nuova: aiPronta(), chiaveId, agenzia, forza });
   let web = null;
   let costo = ricerca?.costo_eur ?? null;
   let tipo = ricerca?.tipo ?? null;
@@ -580,7 +583,7 @@ export async function arricchisciOpportunity(client, {
  * /v1/recapiti/{rui} (chiave API, es. Assicurapp): recapiti di un intermediario A/B/E con il tipo di ricerca
  * e il costo reale; il prezzo per l'utente finale lo decide il software chiamante.
  */
-export async function recapitiPerApi(client, rui, { agenzia, chiaveId = null } = {}) {
+export async function recapitiPerApi(client, rui, { agenzia, chiaveId = null, forza = false } = {}) {
   const target = normalizzaRui(rui);
   if (!target) throw erroreHttp('numero RUI non valido', 400);
   const soggetto = (await anagrafica(client, target))[0];
@@ -590,7 +593,8 @@ export async function recapitiPerApi(client, rui, { agenzia, chiaveId = null } =
 
   // La stessa agenzia (stessa chiave) che richiede lo stesso RUI entro GIORNI_RIUSO giorni non ripaga:
   // tipo 'gia_richiesta', costo 0, recapiti di oggi e data della prima richiesta pagata.
-  if (codiceAgenzia) {
+  // forza: l'agenzia vuole rifare la ricerca con l'AI (niente gia_richiesta ne' cache, prezzo pieno).
+  if (codiceAgenzia && !forza) {
     const prima = await client.query(
       `select to_char(min(fatta_il) at time zone 'Europe/Rome', 'YYYY-MM-DD') as giorno
        from ricerche_web
@@ -606,7 +610,7 @@ export async function recapitiPerApi(client, rui, { agenzia, chiaveId = null } =
          returning id`,
         [target, chiaveId, codiceAgenzia],
       );
-      const [recapiti, ultima] = await Promise.all([
+      const [recapiti, ultima, archiviati] = await Promise.all([
         client.query(RECAPITI_SQL, [target]),
         client.query(
           `select sintesi from ricerche_web
@@ -614,7 +618,23 @@ export async function recapitiPerApi(client, rui, { agenzia, chiaveId = null } =
            order by fatta_il desc limit 1`,
           [target],
         ),
+        // Recapiti già ricevuti dall'agenzia (archivio, copiati al momento delle sue ricerche)
+        client.query(
+          `select telefoni, email from agenzia_archivio
+           where chiave_id = $1 and agenzia = $2 and rui = $3 and recapiti_il is not null`,
+          [Number(chiaveId) || 0, codiceAgenzia, target],
+        ),
       ]);
+      // Ripetuta gratis: solo i recapiti che l'agenzia ha già ricevuto, non quelli trovati dopo da altri.
+      // Ricerche fatte prima dell'archivio (nessuna voce con recapiti): come prima, tutti quelli di oggi.
+      const mia = archiviati.rows[0];
+      const visti = mia && new Set([
+        ...(mia.telefoni || []).map((v) => chiaveRecapito('telefono', v)),
+        ...(mia.email || []).map((v) => chiaveRecapito('email', v)),
+      ]);
+      const propri = visti
+        ? recapiti.rows.filter((r) => visti.has(chiaveRecapito(r.tipo === 'telefono' ? 'telefono' : 'email', r.valore)))
+        : recapiti.rows;
       return {
         ...base,
         ricerca_id: Number(ins.rows[0].id),
@@ -623,12 +643,12 @@ export async function recapitiPerApi(client, rui, { agenzia, chiaveId = null } =
         riusata_il: null,
         gia_richiesta_il: prima.rows[0].giorno,
         sintesi: ultima.rows[0]?.sintesi ?? null,
-        recapiti: recapiti.rows,
+        recapiti: propri,
       };
     }
   }
 
-  const esito = await recapitiDi(client, target, { chiaveId, agenzia: codiceAgenzia });
+  const esito = await recapitiDi(client, target, { chiaveId, agenzia: codiceAgenzia, forza });
   return {
     ...base,
     ricerca_id: esito.ricerca_id,

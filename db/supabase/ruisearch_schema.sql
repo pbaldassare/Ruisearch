@@ -1365,3 +1365,87 @@ where not exists (
 
 commit;
 
+
+-- ===========================================================================
+-- ruisearch_13_ricerche_mistral_api (2026-11-23): fornitore per riga, chiamate /v1 (chiave API e codice agenzia)
+-- Applicata in prod il 23/11 (riportata qui il 27/11 da supabase_migrations).
+-- ===========================================================================
+alter table ruisearch.ricerche_web add column if not exists fornitore text;
+update ruisearch.ricerche_web set fornitore = 'kimi' where fornitore is null;
+alter table ruisearch.ricerche_web alter column fornitore set default 'mistral';
+alter table ruisearch.ricerche_web alter column fornitore set not null;
+alter table ruisearch.ricerche_web alter column cliente_id drop not null;
+alter table ruisearch.ricerche_web add column if not exists chiave_id bigint references ruisearch.api_keys (id) on delete set null;
+alter table ruisearch.ricerche_web add column if not exists agenzia text;
+comment on column ruisearch.ricerche_web.fornitore is 'mistral | kimi (storico): il riuso considera solo le ricerche mistral.';
+comment on column ruisearch.ricerche_web.chiave_id is 'Chiamata da /v1: chiave API usata (cliente_id resta null).';
+comment on column ruisearch.ricerche_web.agenzia is 'Chiamata da /v1: codice agenzia del software chiamante (es. Assicurapp), per i consumi.';
+
+-- ===========================================================================
+-- ruisearch_14_tipo_gia_richiesta (2026-11-24): /v1/recapiti, stessa agenzia e stesso RUI = gia_richiesta, costo 0
+-- Applicata in prod il 24/11 (riportata qui il 27/11 da supabase_migrations).
+-- ===========================================================================
+alter table ruisearch.ricerche_web drop constraint if exists ricerche_web_tipo_check;
+alter table ruisearch.ricerche_web add constraint ricerche_web_tipo_check
+  check (tipo is null or tipo in (
+    'nuova_con_risultati', 'nuova_senza_risultati', 'cache_con_risultati', 'cache_senza_risultati', 'gia_richiesta'
+  ));
+create index if not exists ricerche_web_agenzia_idx on ruisearch.ricerche_web (agenzia, rui_target, fatta_il desc)
+  where agenzia is not null;
+
+-- ===========================================================================
+-- ruisearch_15_archivio_agenzie (2026-11-27): archivio personale di intermediari per agenzia di un software /v1
+-- Applicata in prod il 27/11/2026 (progetto moyfkdwsghidkcifesrg). Rollback: drop table if exists ruisearch.agenzia_archivio;
+-- ===========================================================================
+-- Una riga per intermediario nell'archivio di un'agenzia: identità = (chiave_id, agenzia), cioè la chiave API
+-- del software (Assicurapp, Assiquot...) e il codice agenzia che il software manda. Le voci entrano quando
+-- l'agenzia apre una scheda (origine 'scheda'), fa una ricerca recapiti ('ricerca') o le scrive a mano
+-- ('manuale', anche senza RUI).
+--
+-- telefoni ed email sono SOLO quelli che l'agenzia ha ricevuto dalle sue ricerche recapiti (copiati al momento
+-- della ricerca) o scritto a mano: mai letti dal vivo da contatti, che è condivisa fra tutti.
+-- Nome, sezione e sede si leggono dal registro per le voci con RUI; le colonne qui sono la copia del momento
+-- dell'inserimento (o quanto scritto a mano) e valgono se il RUI sparisce dal registro.
+
+begin;
+
+create table if not exists ruisearch.agenzia_archivio (
+  id            bigint generated always as identity primary key,
+  -- api_keys.id; 0 = chiave RUI_API_KEY del .env (senza riga in api_keys). Niente FK: le chiavi si revocano, non si cancellano.
+  chiave_id     bigint not null,
+  agenzia       text not null,
+  rui           text,
+  nome          text not null,
+  sezione       text,
+  provincia     text,
+  comune        text,
+  indirizzo     text,
+  telefoni      text[] not null default '{}',
+  email         text[] not null default '{}',
+  stato         text not null default 'archivio'
+                check (stato in ('archivio', 'da_lavorare', 'contattato', 'scartato')),
+  note          text,
+  origine       text not null check (origine in ('scheda', 'ricerca', 'manuale')),
+  creato_il     timestamptz not null default now(),
+  aggiornato_il timestamptz not null default now(),
+  -- Ultima ricerca recapiti dell'agenzia su questo RUI copiata in telefoni/email; null = mai cercato.
+  recapiti_il   timestamptz
+);
+
+-- Un RUI una volta sola per agenzia; le voci manuali senza RUI senza vincolo.
+create unique index if not exists agenzia_archivio_rui_idx
+  on ruisearch.agenzia_archivio (chiave_id, agenzia, rui) where rui is not null;
+create index if not exists agenzia_archivio_agenzia_idx
+  on ruisearch.agenzia_archivio (chiave_id, agenzia, aggiornato_il desc);
+
+comment on table ruisearch.agenzia_archivio is
+  'Archivio personale di intermediari per agenzia di un software /v1 (chiave_id + agenzia), src/archivio.js.';
+comment on column ruisearch.agenzia_archivio.telefoni is
+  'Solo recapiti ricevuti dalle ricerche dell''agenzia o scritti a mano, mai letti da contatti.';
+
+alter table ruisearch.agenzia_archivio enable row level security;
+revoke all on table ruisearch.agenzia_archivio from anon, authenticated;
+grant select, insert, update, delete on ruisearch.agenzia_archivio to service_role, ruisearch_api;
+grant usage, select on all sequences in schema ruisearch to service_role, ruisearch_api;
+
+commit;

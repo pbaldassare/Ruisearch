@@ -12,6 +12,9 @@
 import './config.js';
 import { cambiaPasswordCliente, verificaAccesso, verificaSessioneCliente } from './auth-login.js';
 import { chiaveValida, creaChiave, elencoChiavi, revocaChiave } from './api-keys.js';
+import {
+  elencoArchivio, eliminaVoce, inserisciManuale, modificaVoce, registraRicerca, registraScheda,
+} from './archivio.js';
 import { creaToken, leggiToken } from './sessione.js';
 import {
   aggiungiBrokerSorvegliato,
@@ -282,10 +285,33 @@ export function creaApp({ aggiornamento }) {
     // Recapiti via chiave API (es. Assicurapp): ricerca web o cache, con tipo di ricerca e costo reale.
     const recapiti_ = livello === 'chiave' ? p.match(/^\/recapiti\/([^/]+)$/) : null;
     if (recapiti_ && metodo === 'POST') {
-      return risposta(
-        200,
-        await recapitiPerApi(db(), decodeURIComponent(recapiti_[1]), { agenzia: corpo.agenzia, chiaveId }),
-      );
+      const esito = await recapitiPerApi(db(), decodeURIComponent(recapiti_[1]), {
+        agenzia: corpo.agenzia, chiaveId, forza: corpo.forza === true,
+      });
+      // La ricerca e' gia' fatta (e pagata): un errore dell'archivio non deve far perdere la risposta.
+      await registraRicerca(db(), { chiaveId, agenzia: corpo.agenzia, esito })
+        .catch((e) => console.error('archivio agenzia non aggiornato', esito.rui, e));
+      return risposta(200, esito);
+    }
+
+    // Archivio personale dell'agenzia del software chiamante (chiave API + codice agenzia).
+    if (livello === 'chiave' && (p === '/archivio' || p.startsWith('/archivio/'))) {
+      const chi = { chiaveId, agenzia: metodo === 'GET' ? q.agenzia : corpo.agenzia };
+      const voce_ = p.match(/^\/archivio\/(\d+)(\/elimina)?$/);
+      if (p === '/archivio' && metodo === 'GET') {
+        return risposta(200, await elencoArchivio(db(), {
+          ...chi, q: q.q, provincia: q.provincia, concorrente: q.concorrente, stato: q.stato, pagina: q.pagina,
+        }));
+      }
+      if (p === '/archivio' && metodo === 'POST') return risposta(200, await inserisciManuale(db(), { ...corpo, ...chi }));
+      if (p === '/archivio/scheda' && metodo === 'POST') {
+        return risposta(200, await registraScheda(db(), { ...chi, rui: corpo.rui }));
+      }
+      if (voce_ && metodo === 'POST') {
+        return risposta(200, voce_[2]
+          ? await eliminaVoce(db(), voce_[1], chi)
+          : await modificaVoce(db(), voce_[1], { ...corpo, ...chi }));
+      }
     }
 
     // Query e AI (admin)
